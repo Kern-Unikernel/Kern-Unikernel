@@ -31,7 +31,7 @@ jobs:
           echo "✅ Formato correcto"
 
       - name: Compilar
-        run: go build ./...
+        run: go build -o /dev/null ./...
 
       - name: Tests
         run: go test ./... -v -timeout 60s
