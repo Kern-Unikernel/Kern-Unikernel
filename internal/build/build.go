@@ -10,44 +10,98 @@ import (
 )
 
 func Build(config *kernfile.KernfileConfig, projectPath string) error {
-	fmt.Println("→ Instalando dependencias...")
+	fmt.Println("→ Installing dependencies...")
 	if err := installDependencies(config.App.Runtime, projectPath); err != nil {
-		return fmt.Errorf("error instalando dependencias: %w", err)
+		return fmt.Errorf("error installing dependencies: %w", err)
 	}
 
-	fmt.Println("→ Generando Kraftfile...")
+	fmt.Println("→ Generating Dockerfile...")
+	if err := generateDockerfile(config.App.Runtime, config.App.Entry, projectPath); err != nil {
+		return fmt.Errorf("error generating Dockerfile: %w", err)
+	}
+
+	fmt.Println("→ Generating Kraftfile...")
 	kraftfilePath, err := generateKraftfile(config, projectPath)
 	if err != nil {
-		return fmt.Errorf("error generando Kraftfile: %w", err)
+		return fmt.Errorf("error generating Kraftfile: %w", err)
 	}
 
-	fmt.Println("→ Compilando unikernel...")
+	fmt.Println("→ Compiling unikernel...")
 	if err := runBuild(projectPath); err != nil {
-		return fmt.Errorf("error compilando: %w", err)
+		return fmt.Errorf("error compiling: %w", err)
 	}
 
-	fmt.Printf("✓ Build completado — Kraftfile generado en %s\n", kraftfilePath)
+	fmt.Printf("✓ Build completed — Kraftfile generated at %s\n", kraftfilePath)
 	return nil
 }
 
 func installDependencies(runtime, projectPath string) error {
 	var cmd *exec.Cmd
-
 	switch runtime {
 	case "node":
 		cmd = exec.Command("npm", "install", "--production")
 	case "python":
-		cmd = exec.Command("pip", "install", "-r", "requirements.txt")
+		cmd = exec.Command("python3", "-m", "pip", "install", "-r", "requirements.txt")
 	case "go":
 		cmd = exec.Command("go", "mod", "download")
 	default:
-		return fmt.Errorf("runtime no soportado: %q", runtime)
+		return fmt.Errorf("runtime not supported: %q", runtime)
 	}
-
 	cmd.Dir = projectPath
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func generateDockerfile(runtime, entry, projectPath string) error {
+	dockerfilePath := filepath.Join(projectPath, "Dockerfile")
+
+	if _, err := os.Stat(dockerfilePath); err == nil {
+		return nil
+	}
+
+	var content string
+
+	switch runtime {
+	case "node":
+		content = "FROM node:21-alpine AS build\n" +
+			"WORKDIR /usr/src\n" +
+			"COPY . /usr/src/\n" +
+			"RUN npm install\n\n" +
+			"FROM scratch\n" +
+			"COPY --from=build /etc/os-release /etc/os-release\n" +
+			"COPY --from=build /usr/src/node_modules /usr/src/node_modules\n" +
+			"COPY --from=build /usr/src/" + entry + " /usr/src/" + entry + "\n"
+	case "python":
+		content = "FROM python:3.12-slim AS build\n" +
+			"WORKDIR /src\n" +
+			"COPY requirements.txt* ./\n" +
+			"RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\n" +
+			"COPY . .\n\n" +
+			"FROM scratch\n" +
+			"COPY --from=build /usr/local/lib/python3.12 /usr/local/lib/python3.12\n" +
+			"COPY --from=build /usr/local/bin/python3.12 /usr/local/bin/python3.12\n" +
+			"COPY --from=build /lib/x86_64-linux-gnu/libc.so.6 /lib/x86_64-linux-gnu/libc.so.6\n" +
+			"COPY --from=build /lib64/ld-linux-x86-64.so.2 /lib64/ld-linux-x86-64.so.2\n" +
+			"COPY --from=build /src /src\n"
+	case "go":
+		content = "FROM golang:1.22-bookworm AS build\n" +
+			"WORKDIR /src\n" +
+			"COPY . .\n" +
+			"RUN CGO_ENABLED=1 go build \\\n" +
+			"      -buildmode=pie \\\n" +
+			"      -ldflags \"-linkmode external -extldflags '-static-pie'\" \\\n" +
+			"      -tags netgo \\\n" +
+			"      -o /app .\n\n" +
+			"FROM scratch\n" +
+			"COPY --from=build /app /usr/src/app\n" +
+			"COPY --from=build /lib/x86_64-linux-gnu/libc.so.6 /lib/x86_64-linux-gnu/\n" +
+			"COPY --from=build /lib64/ld-linux-x86-64.so.2 /lib64/\n"
+	default:
+		return fmt.Errorf("runtime not supported: %q", runtime)
+	}
+
+	return os.WriteFile(dockerfilePath, []byte(content), 0644)
 }
 
 func generateKraftfile(config *kernfile.KernfileConfig, projectPath string) (string, error) {
@@ -57,29 +111,25 @@ func generateKraftfile(config *kernfile.KernfileConfig, projectPath string) (str
 	}
 
 	runtimeImage := map[string]string{
-		"node":   "unikraft.org/node:21",
-		"python": "unikraft.org/python:3.12",
-		"go":     "unikraft.org/base:latest",
+		"node":   "node:21",
+		"python": "python:3.12",
+		"go":     "base:latest",
 	}[config.App.Runtime]
 
-	content := fmt.Sprintf(`spec: v0.6
+	cmdMap := map[string]string{
+		"node":   `"/usr/bin/node", "/usr/src/` + config.App.Entry + `"`,
+		"python": `"/usr/local/bin/python3.12", "/src/` + config.App.Entry + `"`,
+		"go":     `"/usr/src/app"`,
+	}
+	appCmd := cmdMap[config.App.Runtime]
 
-runtime: %s
-
-rootfs: ./Dockerfile
-
-cmd: ["node", "/usr/src/server.js"]
-
-resources:
-  memory: %s
-  cpu: %d
-`, runtimeImage, profile.Memory, profile.CPU)
+	content := fmt.Sprintf("spec: v0.6\nruntime: %s\nrootfs: ./Dockerfile\ncmd: [%s]\nresources:\n  memory: %s\n  cpu: %d\n",
+		runtimeImage, appCmd, profile.Memory, profile.CPU)
 
 	kraftfilePath := filepath.Join(projectPath, "Kraftfile")
 	if err := os.WriteFile(kraftfilePath, []byte(content), 0644); err != nil {
 		return "", err
 	}
-
 	return kraftfilePath, nil
 }
 
@@ -88,7 +138,6 @@ func runBuild(projectPath string) error {
 	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
 		return err
 	}
-
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		return err
@@ -99,6 +148,5 @@ func runBuild(projectPath string) error {
 	cmd.Dir = projectPath
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-
 	return cmd.Run()
 }

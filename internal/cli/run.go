@@ -31,7 +31,7 @@ var runCmd = &cobra.Command{
 
 		fmt.Printf("Running %s v%s...\n", config.App.Name, config.App.Version)
 
-		kraftArgs := []string{"run", "--plat", "qemu", "--arch", "x86_64", "-M", profile.Memory}
+		kraftArgs := []string{"run", "--plat", "qemu", "--arch", "x86_64", "-M", profile.Memory, "-d", "--rm"}
 
 		for _, p := range config.Network.Ports {
 			kraftArgs = append(kraftArgs, "-p", fmt.Sprintf("%d:%d", p, p))
