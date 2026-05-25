@@ -1,0 +1,3 @@
+runtime = "python"
+memory  = "384Mi"
+cpu     = 1

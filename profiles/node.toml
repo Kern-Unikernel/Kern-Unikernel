@@ -1,0 +1,3 @@
+runtime = "node"
+memory  = "512Mi"
+cpu     = 1
