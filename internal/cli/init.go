@@ -1,52 +1,52 @@
 package cli
 
 import (
-    "fmt"
-    "os"
+	"fmt"
+	"os"
 
-    "github.com/spf13/cobra"
+	"github.com/spf13/cobra"
 )
 
 var initCmd = &cobra.Command{
-    Use:   "init",
-    Short: "Initialize a project by creating a Kernfile",
-    RunE: func(cmd *cobra.Command, args []string) error {
-        projectPath, err := os.Getwd()
-        if err != nil {
-            return fmt.Errorf("no se pudo obtener el directorio actual: %w", err)
-        }
+	Use:   "init",
+	Short: "Initialize a project by creating a Kernfile",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		projectPath, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("no se pudo obtener el directorio actual: %w", err)
+		}
 
-        runtime := detectRuntime(projectPath)
-				fmt.Printf("Runtime detected:", runtime)
+		runtime := detectRuntime(projectPath)
+		fmt.Printf("Runtime detected:", runtime)
 
-        return createKernfile(projectPath, runtime)
-    },
+		return createKernfile(projectPath, runtime)
+	},
 }
 
 func detectRuntime(path string) string {
-    checks := map[string]string{
-        "package.json":    "node",
-        "requirements.txt": "python",
-        "go.mod":          "go",
-    }
+	checks := map[string]string{
+		"package.json":     "node",
+		"requirements.txt": "python",
+		"go.mod":           "go",
+	}
 
-    for file, runtime := range checks {
-        if _, err := os.Stat(path + "/" + file); err == nil {
-            return runtime
-        }
-    }
+	for file, runtime := range checks {
+		if _, err := os.Stat(path + "/" + file); err == nil {
+			return runtime
+		}
+	}
 
-    return "node" // default
+	return "node" // default
 }
 
 func createKernfile(path, runtime string) error {
-    kernfilePath := path + "/Kernfile"
+	kernfilePath := path + "/Kernfile"
 
-    if _, err := os.Stat(kernfilePath); err == nil {
-        return fmt.Errorf("a Kernfile already exists in this directory")
-    }
+	if _, err := os.Stat(kernfilePath); err == nil {
+		return fmt.Errorf("a Kernfile already exists in this directory")
+	}
 
-    content := fmt.Sprintf(`kernfile = "1.0"
+	content := fmt.Sprintf(`kernfile = "1.0"
 
 [app]
 name    = "mi-app"
@@ -65,14 +65,14 @@ cpu    = 1
 NODE_ENV = "production"
 `, runtime)
 
-    if err := os.WriteFile(kernfilePath, []byte(content), 0644); err != nil {
-        return fmt.Errorf("error creating Kernfile: %w", err)
-    }
+	if err := os.WriteFile(kernfilePath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("error creating Kernfile: %w", err)
+	}
 
-    fmt.Println("✓ Kernfile created — review and adjust the fields as needed")
-    return nil
+	fmt.Println("✓ Kernfile created — review and adjust the fields as needed")
+	return nil
 }
 
 func init() {
-    rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(initCmd)
 }
