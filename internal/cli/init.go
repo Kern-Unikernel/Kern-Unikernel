@@ -17,7 +17,7 @@ var initCmd = &cobra.Command{
 		}
 
 		runtime := detectRuntime(projectPath)
-		fmt.Printf("Runtime detected:", runtime)
+		fmt.Printf("Runtime detected: %s\n", runtime)
 
 		return createKernfile(projectPath, runtime)
 	},
