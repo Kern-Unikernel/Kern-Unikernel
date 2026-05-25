@@ -20,14 +20,13 @@ func Build(config *kernfile.KernfileConfig, projectPath string) error {
 	if err != nil {
 		return fmt.Errorf("error generando Kraftfile: %w", err)
 	}
-	defer os.Remove(kraftfilePath)
 
 	fmt.Println("→ Compilando unikernel...")
 	if err := runBuild(projectPath); err != nil {
 		return fmt.Errorf("error compilando: %w", err)
 	}
 
-	fmt.Println("✓ Build completado")
+	fmt.Printf("✓ Build completado — Kraftfile generado en %s\n", kraftfilePath)
 	return nil
 }
 
@@ -69,12 +68,12 @@ runtime: %s
 
 rootfs: ./Dockerfile
 
-cmd: ["%s"]
+cmd: ["node", "/usr/src/server.js"]
 
 resources:
   memory: %s
   cpu: %d
-`, runtimeImage, config.App.Entry, profile.Memory, profile.CPU)
+`, runtimeImage, profile.Memory, profile.CPU)
 
 	kraftfilePath := filepath.Join(projectPath, "Kraftfile")
 	if err := os.WriteFile(kraftfilePath, []byte(content), 0644); err != nil {

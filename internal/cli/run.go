@@ -3,9 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
+	"os/exec"
 
 	"github.com/dev-dimitrov/kerne-project/internal/kernfile"
-	"github.com/dev-dimitrov/kerne-project/internal/runner"
 	"github.com/spf13/cobra"
 )
 
@@ -15,38 +15,36 @@ var runCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectPath, err := os.Getwd()
 		if err != nil {
-			return fmt.Errorf("no se pudo obtener el directorio actual: %w", err)
+			return fmt.Errorf("could not get current directory: %w", err)
 		}
 
 		kernfilePath := projectPath + "/Kernfile"
 		config, err := kernfile.ParseKernfile(kernfilePath)
 		if err != nil {
-			return fmt.Errorf("error leyendo el Kernfile: %w", err)
+			return fmt.Errorf("error reading Kernfile: %w", err)
 		}
 
-		imagePath := projectPath + "/.unikernel/image.uki"
-		hypervisor := runner.DetectHypervisor()
+		profile, err := kernfile.LoadProfile(config.App.Runtime)
+		if err != nil {
+			return fmt.Errorf("error loading runtime profile: %w", err)
+		}
 
 		fmt.Printf("Running %s v%s...\n", config.App.Name, config.App.Version)
-		fmt.Printf("Hypervisor: %s\n", hypervisor)
 
-		var ports []runner.PortMapping
+		kraftArgs := []string{"run", "--plat", "qemu", "--arch", "x86_64", "-M", profile.Memory}
+
 		for _, p := range config.Network.Ports {
-			ports = append(ports, runner.PortMapping{
-				Host:      p,
-				Container: p,
-			})
+			kraftArgs = append(kraftArgs, "-p", fmt.Sprintf("%d:%d", p, p))
 		}
 
-		cfg := runner.RunConfig{
-			ImagePath:  imagePath,
-			MemoryMiB:  128,
-			CPUs:       config.Resources.CPU,
-			Ports:      ports,
-			Hypervisor: hypervisor,
-		}
+		kraftArgs = append(kraftArgs, ".")
 
-		return runner.RunUnikernel(cfg)
+		kraftCmd := exec.Command("kraft", kraftArgs...)
+		kraftCmd.Dir = projectPath
+		kraftCmd.Stdout = os.Stdout
+		kraftCmd.Stderr = os.Stderr
+
+		return kraftCmd.Run()
 	},
 }
 

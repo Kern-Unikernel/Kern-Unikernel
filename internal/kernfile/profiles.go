@@ -2,8 +2,8 @@ package kernfile
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
-	"runtime"
 
 	"github.com/BurntSushi/toml"
 )
@@ -15,8 +15,12 @@ type RuntimeProfile struct {
 }
 
 func LoadProfile(runtimeName string) (*RuntimeProfile, error) {
-	_, filename, _, _ := runtime.Caller(0)
-	basePath := filepath.Join(filepath.Dir(filename), "..", "..", "profiles")
+	execPath, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("no se pudo obtener la ruta del binario: %w", err)
+	}
+
+	basePath := filepath.Join(filepath.Dir(execPath), "profiles")
 	profilePath := filepath.Join(basePath, runtimeName+".toml")
 
 	var profile RuntimeProfile
