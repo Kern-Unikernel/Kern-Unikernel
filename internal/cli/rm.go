@@ -2,8 +2,8 @@ package cli
 
 import (
 	"fmt"
-	"os/exec"
 
+	"github.com/dev-dimitrov/kern/internal/instances"
 	"github.com/spf13/cobra"
 )
 
@@ -14,9 +14,17 @@ var rmCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		out, err := exec.Command("kraft", "rm", name).CombinedOutput()
+		instance, err := instances.GetByName(name)
 		if err != nil {
-			return fmt.Errorf("error removing %q: %w\n%s", name, err, string(out))
+			return fmt.Errorf("instance %q not found", name)
+		}
+
+		if instance.Status == "running" {
+			return fmt.Errorf("%q is still running — stop it first with 'kern stop %s'", name, name)
+		}
+
+		if err := instances.Remove(instance.ID); err != nil {
+			return fmt.Errorf("error removing instance: %w", err)
 		}
 
 		fmt.Printf("✓ %s removed\n", name)

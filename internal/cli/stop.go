@@ -2,8 +2,9 @@ package cli
 
 import (
 	"fmt"
-	"os/exec"
+	"os"
 
+	"github.com/dev-dimitrov/kern/internal/instances"
 	"github.com/spf13/cobra"
 )
 
@@ -14,9 +15,23 @@ var stopCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
-		out, err := exec.Command("kraft", "stop", name).CombinedOutput()
+		instance, err := instances.GetByName(name)
 		if err != nil {
-			return fmt.Errorf("error stopping %q: %w\n%s", name, err, string(out))
+			return fmt.Errorf("instance %q not found", name)
+		}
+
+		process, err := os.FindProcess(instance.PID)
+		if err != nil {
+			return fmt.Errorf("could not find process %d: %w", instance.PID, err)
+		}
+
+		if err := process.Kill(); err != nil {
+			return fmt.Errorf("could not stop %q: %w", name, err)
+		}
+
+		instance.Status = "stopped"
+		if err := instances.Save(instance); err != nil {
+			fmt.Printf("warning: could not update instance state: %v\n", err)
 		}
 
 		fmt.Printf("✓ %s stopped\n", name)

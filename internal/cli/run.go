@@ -2,9 +2,12 @@ package cli
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
+	"time"
 
+	"github.com/dev-dimitrov/kern/internal/instances"
 	"github.com/dev-dimitrov/kern/internal/kernfile"
 	"github.com/spf13/cobra"
 )
@@ -26,36 +29,71 @@ var runCmd = &cobra.Command{
 			return fmt.Errorf("error reading Kernfile: %w", err)
 		}
 
-		return kraftRun(config, projectPath, detach)
+		profile, err := kernfile.LoadProfile(config.App.Runtime)
+		if err != nil {
+			return fmt.Errorf("error loading runtime profile: %w", err)
+		}
+
+		fmt.Printf("Running %s v%s...\n", config.App.Name, config.App.Version)
+
+		kraftArgs := []string{"run", "--plat", "qemu", "--arch", "x86_64", "-M", profile.Memory}
+
+		if detach {
+			kraftArgs = append(kraftArgs, "--detach")
+		}
+
+		for _, p := range config.Network.Ports {
+			kraftArgs = append(kraftArgs, "-p", fmt.Sprintf("%d:%d", p, p))
+		}
+
+		kraftArgs = append(kraftArgs, ".")
+
+		kraftCmd := exec.Command("kraft", kraftArgs...)
+		kraftCmd.Dir = projectPath
+		kraftCmd.Stdout = os.Stdout
+		kraftCmd.Stderr = os.Stderr
+
+		if err := kraftCmd.Run(); err != nil {
+			return err
+		}
+
+		if detach {
+			time.Sleep(2 * time.Second)
+
+			qemuPid, err := instances.FindQEMUPid()
+			if err != nil {
+				qemuPid = kraftCmd.Process.Pid
+			}
+
+			instance := &instances.Instance{
+				ID:        generateID(),
+				Name:      config.App.Name,
+				Runtime:   config.App.Runtime,
+				PID:       qemuPid,
+				Ports:     config.Network.Ports,
+				MemoryMiB: 512,
+				CreatedAt: time.Now(),
+				Status:    "running",
+			}
+			if err := instances.Save(instance); err != nil {
+				fmt.Printf("warning: could not save instance state: %v\n", err)
+			}
+
+			fmt.Printf("✓ %s running in background (PID %d)\n", config.App.Name, qemuPid)
+		}
+
+		return nil
 	},
 }
 
-func kraftRun(config *kernfile.KernfileConfig, projectPath string, detachMode bool) error {
-	profile, err := kernfile.LoadProfile(config.App.Runtime)
-	if err != nil {
-		return fmt.Errorf("error loading runtime profile: %w", err)
+func generateID() string {
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	b := make([]byte, 8)
+	for i := range b {
+		b[i] = chars[r.Intn(len(chars))]
 	}
-
-	fmt.Printf("Running %s v%s...\n", config.App.Name, config.App.Version)
-
-	kraftArgs := []string{"run", "--plat", "qemu", "--arch", "x86_64", "-M", profile.Memory}
-
-	if detachMode {
-		kraftArgs = append(kraftArgs, "--detach")
-	}
-
-	for _, p := range config.Network.Ports {
-		kraftArgs = append(kraftArgs, "-p", fmt.Sprintf("%d:%d", p, p))
-	}
-
-	kraftArgs = append(kraftArgs, ".")
-
-	kraftCmd := exec.Command("kraft", kraftArgs...)
-	kraftCmd.Dir = projectPath
-	kraftCmd.Stdout = os.Stdout
-	kraftCmd.Stderr = os.Stderr
-
-	return kraftCmd.Run()
+	return string(b)
 }
 
 func init() {
