@@ -12,22 +12,24 @@ func TestDetectHypervisor(t *testing.T) {
 	t.Logf("hypervisor detectado: %s", h)
 }
 
-func TestRunUnikernelImageVacia(t *testing.T) {
+func TestRunUnikernelKernelVacio(t *testing.T) {
 	err := RunUnikernel(RunConfig{
-		ImagePath: "",
-		MemoryMiB: 512,
-		CPUs:      1,
+		KernelPath: "",
+		InitrdPath: "/tmp/test.cpio",
+		MemoryMiB:  512,
+		CPUs:       1,
 	})
 	if err == nil {
-		t.Error("debería fallar con imagen vacía")
+		t.Error("debería fallar con kernel vacío")
 	}
 }
 
 func TestRunUnikernelMemoriaCero(t *testing.T) {
 	err := RunUnikernel(RunConfig{
-		ImagePath: "/tmp/test.uki",
-		MemoryMiB: 0,
-		CPUs:      1,
+		KernelPath: "/tmp/test.kernel",
+		InitrdPath: "/tmp/test.cpio",
+		MemoryMiB:  0,
+		CPUs:       1,
 	})
 	if err == nil {
 		t.Error("debería fallar con memoria 0")
@@ -36,13 +38,14 @@ func TestRunUnikernelMemoriaCero(t *testing.T) {
 
 func TestBuildQEMUArgsKVM(t *testing.T) {
 	cfg := RunConfig{
-		ImagePath:  "/tmp/test.uki",
+		KernelPath: "/tmp/test.kernel",
+		InitrdPath: "/tmp/test.cpio",
 		MemoryMiB:  512,
 		CPUs:       1,
 		Hypervisor: HypervisorKVM,
+		AppCmd:     "/usr/bin/node /usr/src/index.js",
 	}
-	args := buildQEMUArgs(cfg)
-
+	args := BuildQEMUArgs(cfg)
 	tieneKVM := false
 	for _, a := range args {
 		if a == "-enable-kvm" {
@@ -56,15 +59,16 @@ func TestBuildQEMUArgsKVM(t *testing.T) {
 
 func TestBuildQEMUArgsPuertos(t *testing.T) {
 	cfg := RunConfig{
-		ImagePath: "/tmp/test.uki",
-		MemoryMiB: 512,
-		CPUs:      1,
+		KernelPath: "/tmp/test.kernel",
+		InitrdPath: "/tmp/test.cpio",
+		MemoryMiB:  512,
+		CPUs:       1,
+		AppCmd:     "/usr/bin/node /usr/src/index.js",
 		Ports: []PortMapping{
 			{Host: 8080, Container: 8080},
 		},
 	}
-	args := buildQEMUArgs(cfg)
-
+	args := BuildQEMUArgs(cfg)
 	tieneNetdev := false
 	for _, a := range args {
 		if a == "-netdev" {
