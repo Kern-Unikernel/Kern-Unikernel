@@ -38,7 +38,7 @@ cd my-app
 kern init
 ```
 
-Detects the runtime automatically (Node.js, Python, Go) and creates a `Kernfile`.
+Detects the runtime automatically (Node.js, Go) and creates a `Kernfile`.
 
 ### Build the unikernel
 
@@ -46,7 +46,7 @@ Detects the runtime automatically (Node.js, Python, Go) and creates a `Kernfile`
 kern build
 ```
 
-Installs dependencies, generates a Kraftfile and compiles the unikernel.
+Installs dependencies, generates a Kraftfile, compiles the unikernel, signs it with ed25519 and generates a SBOM.
 
 ### Run locally
 
@@ -66,6 +66,27 @@ kern stop my-app     # stop a unikernel
 kern rm my-app       # remove a stopped unikernel
 ```
 
+### Push and pull images
+
+```bash
+kern push registry.io/my-org/my-app:1.0.0 -u username -p password
+kern pull registry.io/my-org/my-app:1.0.0 -u username -p password
+```
+
+### Manage secrets
+
+```bash
+kern secret set db_url "postgres://user:pass@host/db"
+kern secret get db_url
+```
+
+Reference secrets in the Kernfile:
+
+```toml
+[env]
+DATABASE_URL = "secret:db_url"
+```
+
 ## The Kernfile
 
 ```toml
@@ -74,7 +95,7 @@ kernfile = "1.0"
 [app]
 name    = "my-api"
 version = "1.0.0"
-runtime = "node"      # node | python | go
+runtime = "node"      # node | go
 entry   = "index.js"
 
 [network]
@@ -86,6 +107,7 @@ cpu    = 1
 
 [env]
 NODE_ENV = "production"
+DATABASE_URL = "secret:db_url"
 ```
 
 ## Supported runtimes
@@ -94,7 +116,13 @@ NODE_ENV = "production"
 |---|---|---|
 | Go 1.22 | 64Mi | ~8ms |
 | Node.js 21 | 512Mi | ~10ms |
-| Python 3.12 | 384Mi | ~11ms |
+
+## Security
+
+Every `kern build` automatically:
+- Signs the image with ed25519 — stored in `.unikernel/image.sig`
+- Generates a SBOM — stored in `.unikernel/image.sbom`
+- Keys are stored in `~/.config/kern/keys/`
 
 ## Project structure
 
@@ -105,7 +133,10 @@ kern/
 │   ├── build/            ← Build engine
 │   ├── cli/              ← CLI commands
 │   ├── kernfile/         ← Kernfile parser
-│   └── runner/           ← Hypervisor runner
+│   ├── packager/         ← Image signing and SBOM
+│   ├── registry/         ← OCI registry client
+│   ├── runner/           ← Hypervisor runner
+│   └── secrets/          ← Secret store (AES-256-GCM)
 └── profiles/             ← Runtime profiles (TOML)
 ```
 
@@ -114,9 +145,11 @@ kern/
 This project is under active development. Current version: v0.1.
 
 - [x] kern init
-- [x] kern build
+- [x] kern build (with ed25519 signing and SBOM)
 - [x] kern run
 - [x] kern ps / stop / rm / logs
-- [ ] kern push / pull (registry)
-- [ ] Image signing (ed25519)
-- [ ] Secret management
+- [x] kern push / pull
+- [x] kern secret set / get
+- [ ] macOS support (HVF)
+- [ ] kern inspect
+- [ ] Multi-service support
