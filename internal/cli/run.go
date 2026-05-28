@@ -9,6 +9,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var detach bool
+
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run the unikernel locally",
@@ -24,30 +26,39 @@ var runCmd = &cobra.Command{
 			return fmt.Errorf("error reading Kernfile: %w", err)
 		}
 
-		profile, err := kernfile.LoadProfile(config.App.Runtime)
-		if err != nil {
-			return fmt.Errorf("error loading runtime profile: %w", err)
-		}
-
-		fmt.Printf("Running %s v%s...\n", config.App.Name, config.App.Version)
-
-		kraftArgs := []string{"run", "--plat", "qemu", "--arch", "x86_64", "-M", profile.Memory, "-d", "--rm"}
-
-		for _, p := range config.Network.Ports {
-			kraftArgs = append(kraftArgs, "-p", fmt.Sprintf("%d:%d", p, p))
-		}
-
-		kraftArgs = append(kraftArgs, ".")
-
-		kraftCmd := exec.Command("kraft", kraftArgs...)
-		kraftCmd.Dir = projectPath
-		kraftCmd.Stdout = os.Stdout
-		kraftCmd.Stderr = os.Stderr
-
-		return kraftCmd.Run()
+		return kraftRun(config, projectPath, detach)
 	},
 }
 
+func kraftRun(config *kernfile.KernfileConfig, projectPath string, detachMode bool) error {
+	profile, err := kernfile.LoadProfile(config.App.Runtime)
+	if err != nil {
+		return fmt.Errorf("error loading runtime profile: %w", err)
+	}
+
+	fmt.Printf("Running %s v%s...\n", config.App.Name, config.App.Version)
+
+	kraftArgs := []string{"run", "--plat", "qemu", "--arch", "x86_64", "-M", profile.Memory}
+
+	if detachMode {
+		kraftArgs = append(kraftArgs, "--detach")
+	}
+
+	for _, p := range config.Network.Ports {
+		kraftArgs = append(kraftArgs, "-p", fmt.Sprintf("%d:%d", p, p))
+	}
+
+	kraftArgs = append(kraftArgs, ".")
+
+	kraftCmd := exec.Command("kraft", kraftArgs...)
+	kraftCmd.Dir = projectPath
+	kraftCmd.Stdout = os.Stdout
+	kraftCmd.Stderr = os.Stderr
+
+	return kraftCmd.Run()
+}
+
 func init() {
+	runCmd.Flags().BoolVarP(&detach, "detach", "d", false, "Run in background")
 	rootCmd.AddCommand(runCmd)
 }
