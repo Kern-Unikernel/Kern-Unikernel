@@ -6,7 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/dev-dimitrov/kerne-project/internal/kernfile"
+	"github.com/dev-dimitrov/kern/internal/kernfile"
+	"github.com/dev-dimitrov/kern/internal/packager"
 )
 
 func Build(config *kernfile.KernfileConfig, projectPath string) error {
@@ -31,6 +32,41 @@ func Build(config *kernfile.KernfileConfig, projectPath string) error {
 		return fmt.Errorf("error compiling: %w", err)
 	}
 
+	fmt.Println("→ Signing image and generating SBOM...")
+
+	configDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("error getting home directory: %w", err)
+	}
+	configDir = filepath.Join(configDir, ".config", "kern")
+
+	_, privKey, err := packager.GenerateKeyPair(configDir)
+	if err != nil {
+		return fmt.Errorf("error generating key pair: %w", err)
+	}
+
+	unikernelDir := filepath.Join(projectPath, ".unikernel")
+	imagePath := filepath.Join(unikernelDir, "image.uki")
+
+	if _, err := os.Stat(imagePath); err == nil {
+		if err := packager.SignImage(imagePath, privKey); err != nil {
+			return fmt.Errorf("error signing image: %w", err)
+		}
+		fmt.Println("✓ Image signed")
+	}
+
+	sbom := packager.GenerateSBOM(config.App.Name, config.App.Version, config.App.Runtime,
+		[]packager.Component{
+			{Name: "unikraft", Version: "0.21.0"},
+			{Name: config.App.Runtime, Version: "runtime"},
+		})
+
+	sbomPath := filepath.Join(unikernelDir, "image.sbom")
+	if err := packager.SaveSBOM(sbom, sbomPath); err != nil {
+		return fmt.Errorf("error saving SBOM: %w", err)
+	}
+
+	fmt.Println("✓ SBOM generated")
 	fmt.Printf("✓ Build completed — Kraftfile generated at %s\n", kraftfilePath)
 	return nil
 }

@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/dev-dimitrov/kerne-project/internal/kernfile"
+	"github.com/dev-dimitrov/kern/internal/kernfile"
 	"github.com/spf13/cobra"
 )
 
