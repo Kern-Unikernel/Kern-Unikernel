@@ -70,6 +70,7 @@ var runCmd = &cobra.Command{
 				"python": 384,
 				"go":     64,
 				"bun":    256,
+				"rust":   64,
 			}
 
 			instance := &instances.Instance{

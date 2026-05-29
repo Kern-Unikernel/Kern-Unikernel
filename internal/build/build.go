@@ -89,6 +89,8 @@ func installDependencies(runtime, projectPath string) error {
 		cmd = exec.Command("go", "mod", "download")
 	case "bun":
 		cmd = exec.Command("bun", "install", "--production")
+	case "rust":
+		cmd = exec.Command("cargo", "build", "--release")
 	default:
 		return fmt.Errorf("runtime not supported: %q", runtime)
 	}
@@ -154,6 +156,15 @@ func generateDockerfile(runtime, entry, projectPath string) error {
 			"COPY --from=bun /lib/x86_64-linux-gnu/libm.so.6 /lib/x86_64-linux-gnu/libm.so.6\n" +
 			"COPY --from=bun /lib64/ld-linux-x86-64.so.2 /lib64/ld-linux-x86-64.so.2\n" +
 			"COPY --from=bun /usr/src /usr/src\n"
+	case "rust":
+		content = "FROM rust:latest AS build\n" +
+			"WORKDIR /src\n" +
+			"RUN rustup target add x86_64-unknown-linux-musl\n" +
+			"RUN apt-get update && apt-get install -y musl-tools\n" +
+			"COPY . .\n" +
+			"RUN cargo build --release --target x86_64-unknown-linux-musl\n\n" +
+			"FROM scratch\n" +
+			"COPY --from=build /src/target/x86_64-unknown-linux-musl/release/app /usr/src/app\n"
 	default:
 		return fmt.Errorf("runtime not supported: %q", runtime)
 	}
@@ -172,6 +183,7 @@ func generateKraftfile(config *kernfile.KernfileConfig, projectPath string) (str
 		"python": "python:3.12",
 		"go":     "base:latest",
 		"bun":    "bun:1.1",
+		"rust":   "base:latest",
 	}[config.App.Runtime]
 
 	cmdMap := map[string]string{
@@ -179,6 +191,7 @@ func generateKraftfile(config *kernfile.KernfileConfig, projectPath string) (str
 		"python": `"/usr/local/bin/python3.12", "/src/` + config.App.Entry + `"`,
 		"go":     `"/usr/src/app"`,
 		"bun":    `"/usr/bin/bun", "run", "/usr/src/` + config.App.Entry + `"`,
+		"rust":   `"/usr/src/app"`,
 	}
 	appCmd := cmdMap[config.App.Runtime]
 
@@ -253,6 +266,8 @@ func generateUKI(config *kernfile.KernfileConfig, projectPath string) error {
 		"node":   "/usr/bin/node /usr/src/" + config.App.Entry,
 		"python": "/usr/local/bin/python3.12 /src/" + config.App.Entry,
 		"go":     "/usr/src/app",
+		"bun":    "/usr/bin/bun run /usr/src" + config.App.Entry,
+		"rust":   "/usr/src/app",
 	}
 	cmdline := fmt.Sprintf(`vfs.fstab=[ "initrd0:/:extract:::" ] -- %s`, cmdlineMap[config.App.Runtime])
 

@@ -1,0 +1,3 @@
+runtime = "rust"
+memory  = "64Mi"
+cpu     = 1

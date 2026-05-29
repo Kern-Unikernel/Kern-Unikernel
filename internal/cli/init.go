@@ -25,22 +25,23 @@ var initCmd = &cobra.Command{
 }
 
 func detectRuntime(path string) string {
+	checks := []struct {
+		file    string
+		runtime string
+	}{
+		{"Cargo.toml", "rust"},
+		{"bun.lockb", "bun"},
+		{"go.mod", "go"},
+		{"requirements.txt", "python"},
+		{"package.json", "node"},
+	}
+
 	// Bun: tiene tsconfig.json Y archivos .ts
 	if _, err := os.Stat(path + "/tsconfig.json"); err == nil {
 		matches, _ := filepath.Glob(path + "/*.ts")
 		if len(matches) > 0 {
 			return "bun"
 		}
-	}
-
-	checks := []struct {
-		file    string
-		runtime string
-	}{
-		{"bun.lockb", "bun"},
-		{"go.mod", "go"},
-		{"requirements.txt", "python"},
-		{"package.json", "node"},
 	}
 
 	for _, check := range checks {
