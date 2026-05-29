@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/dev-dimitrov/kern/internal/kernfile"
-	"github.com/dev-dimitrov/kern/internal/packager"
+	"github.com/Kern-Unikernel/Kern-Unikernel/internal/kernfile"
+	"github.com/Kern-Unikernel/Kern-Unikernel/internal/packager"
 )
 
 func Build(config *kernfile.KernfileConfig, projectPath string) error {

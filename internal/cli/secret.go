@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	"github.com/dev-dimitrov/kern/internal/secrets"
+	"github.com/Kern-Unikernel/Kern-Unikernel/internal/secrets"
 	"github.com/spf13/cobra"
 )
 

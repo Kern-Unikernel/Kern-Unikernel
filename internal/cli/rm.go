@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	"github.com/dev-dimitrov/kern/internal/instances"
+	"github.com/Kern-Unikernel/Kern-Unikernel/internal/instances"
 	"github.com/spf13/cobra"
 )
 

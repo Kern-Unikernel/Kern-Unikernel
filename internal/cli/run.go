@@ -7,8 +7,8 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/dev-dimitrov/kern/internal/instances"
-	"github.com/dev-dimitrov/kern/internal/kernfile"
+	"github.com/Kern-Unikernel/Kern-Unikernel/internal/instances"
+	"github.com/Kern-Unikernel/Kern-Unikernel/internal/kernfile"
 	"github.com/spf13/cobra"
 )
 
