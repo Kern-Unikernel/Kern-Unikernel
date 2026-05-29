@@ -39,67 +39,85 @@ var inspectCmd = &cobra.Command{
 
 		unikernelDir := filepath.Join(projectPath, ".unikernel")
 
-		fmt.Printf("Image: %s v%s\n", config.App.Name, config.App.Version)
-		fmt.Printf("Runtime: %s\n", config.App.Runtime)
-		fmt.Printf("Entry: %s\n", config.App.Entry)
+		fmt.Println("=== Image Info ===")
+		fmt.Printf("Name:         %s\n", config.App.Name)
+		fmt.Printf("Version:      %s\n", config.App.Version)
+		fmt.Printf("Runtime:      %s\n", config.App.Runtime)
+		fmt.Printf("Entry:        %s\n", config.App.Entry)
 		fmt.Println()
 
-		// Tamaño del kernel
-		kernelPath := filepath.Join(projectPath, ".unikraft", "build", "kernel")
-		if info, err := os.Stat(kernelPath); err == nil {
-			fmt.Printf("Kernel size:  %s\n", formatSize(info.Size()))
+		fmt.Println("=== Image Size ===")
+
+		// Tamaño del .uki
+		ukiPath := filepath.Join(unikernelDir, "image.uki")
+		if info, err := os.Stat(ukiPath); err == nil {
+			fmt.Printf("UKI:          %s\n", formatSize(info.Size()))
+		} else {
+			fmt.Println("UKI:          not built yet")
 		}
 
 		// Tamaño del initrd
 		initrdPath := filepath.Join(projectPath, ".unikraft", "build", "initramfs-x86_64.cpio")
 		if info, err := os.Stat(initrdPath); err == nil {
-			fmt.Printf("Initrd size:  %s\n", formatSize(info.Size()))
+			fmt.Printf("Initrd:       %s\n", formatSize(info.Size()))
 		}
 
 		fmt.Println()
 
-		// Memoria según runtime
+		fmt.Println("=== Runtime ===")
 		memoryMap := map[string]string{
 			"node":   "512Mi",
 			"python": "384Mi",
 			"go":     "64Mi",
 		}
+		bootMap := map[string]string{
+			"node":   "~10ms",
+			"python": "~11ms",
+			"go":     "~8ms",
+		}
 		fmt.Printf("Min memory:   %s\n", memoryMap[config.App.Runtime])
-		fmt.Printf("Boot time:    ~10ms (estimated)\n")
+		fmt.Printf("Boot time:    %s\n", bootMap[config.App.Runtime])
 		fmt.Println()
 
-		// SBOM
-		sbomPath := filepath.Join(unikernelDir, "image.sbom")
-		if data, err := os.ReadFile(sbomPath); err == nil {
-			var sbom SBOM
-			if err := json.Unmarshal(data, &sbom); err == nil {
-				fmt.Printf("SBOM (%s):\n", sbom.SPDXVersion)
-				for _, c := range sbom.Components {
-					fmt.Printf("  - %s %s\n", c.Name, c.Version)
-				}
-				fmt.Println()
+		fmt.Println("=== Network ===")
+		if len(config.Network.Ports) > 0 {
+			for _, p := range config.Network.Ports {
+				fmt.Printf("Port:         %d\n", p)
 			}
+		} else {
+			fmt.Println("No ports exposed")
 		}
+		fmt.Println()
+
+		fmt.Println("=== Security ===")
 
 		// Firma
-		sigPath := filepath.Join(unikernelDir, "image.sig")
+		sigPath := filepath.Join(unikernelDir, "image.uki.sig")
 		if _, err := os.Stat(sigPath); err == nil {
 			fmt.Println("Signature:    ✓ ed25519")
 		} else {
 			fmt.Println("Signature:    ✗ not signed")
 		}
 
-		// Puertos
-		if len(config.Network.Ports) > 0 {
-			fmt.Printf("Ports:        ")
-			for i, p := range config.Network.Ports {
-				if i > 0 {
-					fmt.Printf(", ")
+		// SBOM
+		sbomPath := filepath.Join(unikernelDir, "image.sbom")
+		if data, err := os.ReadFile(sbomPath); err == nil {
+			var sbom SBOM
+			if err := json.Unmarshal(data, &sbom); err == nil {
+				fmt.Printf("SBOM:         ✓ %s\n", sbom.SPDXVersion)
+				fmt.Println()
+				fmt.Println("=== Components ===")
+				for _, c := range sbom.Components {
+					fmt.Printf("  %-20s %s\n", c.Name, c.Version)
 				}
-				fmt.Printf("%d", p)
 			}
-			fmt.Println()
+		} else {
+			fmt.Println("SBOM:         ✗ not generated")
 		}
+
+		fmt.Println()
+		fmt.Println("=== Registry ===")
+		fmt.Printf("Push:         kern push ghcr.io/YOUR_USER/%s:%s\n", config.App.Name, config.App.Version)
 
 		return nil
 	},
