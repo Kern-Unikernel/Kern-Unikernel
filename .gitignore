@@ -1,0 +1,15 @@
+# Ejecutables compilados
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+kern
+
+# Dependencias (opcional, pero recomendado en Go)
+vendor/
+
+# Archivos del sistema o editor
+.DS_Store
+.vscode/
+.idea/
