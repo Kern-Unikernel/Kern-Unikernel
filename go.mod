@@ -1,4 +1,4 @@
-module github.com/dev-dimitrov/kern
+module github.com/Kern-Unikernel/Kern-Unikernel
 
 go 1.26.3
 
