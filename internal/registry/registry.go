@@ -6,8 +6,11 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
+	"path/filepath"
 )
 
 type Credentials struct {
@@ -21,14 +24,16 @@ func PushImage(imagePath, reference string, creds Credentials) error {
 		return fmt.Errorf("invalid image reference %q: %w", reference, err)
 	}
 
-	tag, err := name.NewTag(reference)
+	// Crear una capa OCI desde el archivo .uki
+	layer, err := tarball.LayerFromFile(imagePath)
 	if err != nil {
-		return fmt.Errorf("error parsing tag: %w", err)
+		return fmt.Errorf("error creating layer from file: %w", err)
 	}
 
-	img, err := tarball.ImageFromPath(imagePath, &tag)
+	// Añadir la capa a una imagen OCI vacía
+	img, err := mutate.AppendLayers(empty.Image, layer)
 	if err != nil {
-		return fmt.Errorf("error reading image file: %w", err)
+		return fmt.Errorf("error creating image: %w", err)
 	}
 
 	auth := authn.FromConfig(authn.AuthConfig{
@@ -69,10 +74,11 @@ func PullImage(reference, destPath string, creds Credentials) error {
 		return fmt.Errorf("error parsing tag: %w", err)
 	}
 
-	if err := tarball.WriteToFile(destPath+"/image.tar", tag, img); err != nil {
+	ukiPath := filepath.Join(destPath, "image.uki")
+	if err := tarball.WriteToFile(ukiPath, tag, img); err != nil {
 		return fmt.Errorf("error saving image: %w", err)
 	}
 
-	fmt.Printf("✓ Image pulled from %s\n", reference)
+	fmt.Printf("✓ Image pulled to %s\n", ukiPath)
 	return nil
 }
