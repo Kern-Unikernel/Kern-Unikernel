@@ -23,7 +23,7 @@ kern eliminates the operating system from the application lifecycle. Instead of 
 ## Installation
 
 ```bash
-git clone https://github.com/dev-dimitrov/kern.git
+git clone https://github.com/Kern-Unikernel/Kern-Unikernel
 cd kern
 go build -o kern ./cmd/
 sudo mv kern /usr/local/bin/
