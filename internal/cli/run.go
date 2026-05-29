@@ -65,13 +65,20 @@ var runCmd = &cobra.Command{
 				qemuPid = kraftCmd.Process.Pid
 			}
 
+			memoryMap := map[string]int{
+				"node":   512,
+				"python": 384,
+				"go":     64,
+				"bun":    256,
+			}
+
 			instance := &instances.Instance{
 				ID:        generateID(),
 				Name:      config.App.Name,
 				Runtime:   config.App.Runtime,
 				PID:       qemuPid,
 				Ports:     config.Network.Ports,
-				MemoryMiB: 512,
+				MemoryMiB: memoryMap[config.App.Runtime],
 				CreatedAt: time.Now(),
 				Status:    "running",
 			}

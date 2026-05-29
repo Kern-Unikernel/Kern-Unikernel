@@ -68,7 +68,7 @@ func validate(config KernfileConfig) error {
 	}
 
 	// Runtime: solo node, python o go
-	validRuntimes := map[string]bool{"node": true, "python": true, "go": true}
+	validRuntimes := map[string]bool{"node": true, "python": true, "go": true, "bun": true}
 	if !validRuntimes[config.App.Runtime] {
 		return fmt.Errorf("el campo 'runtime' tiene que ser node, python o go, encontrado: %q", config.App.Runtime)
 	}

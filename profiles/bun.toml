@@ -1,0 +1,3 @@
+runtime = "bun"
+memory  = "512Mi"
+cpu     = 1

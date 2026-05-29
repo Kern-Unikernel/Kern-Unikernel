@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
@@ -13,7 +14,7 @@ var initCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectPath, err := os.Getwd()
 		if err != nil {
-			return fmt.Errorf("no se pudo obtener el directorio actual: %w", err)
+			return fmt.Errorf("could not get current directory: %w", err)
 		}
 
 		runtime := detectRuntime(projectPath)
@@ -24,19 +25,31 @@ var initCmd = &cobra.Command{
 }
 
 func detectRuntime(path string) string {
-	checks := map[string]string{
-		"package.json":     "node",
-		"requirements.txt": "python",
-		"go.mod":           "go",
-	}
-
-	for file, runtime := range checks {
-		if _, err := os.Stat(path + "/" + file); err == nil {
-			return runtime
+	// Bun: tiene tsconfig.json Y archivos .ts
+	if _, err := os.Stat(path + "/tsconfig.json"); err == nil {
+		matches, _ := filepath.Glob(path + "/*.ts")
+		if len(matches) > 0 {
+			return "bun"
 		}
 	}
 
-	return "node" // default
+	checks := []struct {
+		file    string
+		runtime string
+	}{
+		{"bun.lockb", "bun"},
+		{"go.mod", "go"},
+		{"requirements.txt", "python"},
+		{"package.json", "node"},
+	}
+
+	for _, check := range checks {
+		if _, err := os.Stat(path + "/" + check.file); err == nil {
+			return check.runtime
+		}
+	}
+
+	return "node"
 }
 
 func createKernfile(path, runtime string) error {
@@ -52,10 +65,10 @@ func createKernfile(path, runtime string) error {
 name    = "mi-app"
 version = "0.1.0"
 runtime = "%s"
-entry   = "src/index.js"
+entry   = "server.ts"
 
 [network]
-ports = [8080]
+ports = [3000]
 
 [resources]
 memory = "256mb"

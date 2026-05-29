@@ -87,6 +87,8 @@ func installDependencies(runtime, projectPath string) error {
 		cmd = exec.Command("python3.12", "-m", "pip", "install", "-r", "requirements.txt")
 	case "go":
 		cmd = exec.Command("go", "mod", "download")
+	case "bun":
+		cmd = exec.Command("bun", "install", "--production")
 	default:
 		return fmt.Errorf("runtime not supported: %q", runtime)
 	}
@@ -140,6 +142,18 @@ func generateDockerfile(runtime, entry, projectPath string) error {
 			"COPY --from=build /app /usr/src/app\n" +
 			"COPY --from=build /lib/x86_64-linux-gnu/libc.so.6 /lib/x86_64-linux-gnu/\n" +
 			"COPY --from=build /lib64/ld-linux-x86-64.so.2 /lib64/\n"
+	case "bun":
+		content = "FROM oven/bun:1.1.20-debian AS bun\n" +
+			"RUN mv /usr/local/bin/bun /usr/bin/bun\n" +
+			"WORKDIR /usr/src\n" +
+			"COPY . .\n" +
+			"RUN bun install --production\n\n" +
+			"FROM scratch\n" +
+			"COPY --from=bun /usr/bin/bun /usr/bin/bun\n" +
+			"COPY --from=bun /lib/x86_64-linux-gnu/libc.so.6 /lib/x86_64-linux-gnu/libc.so.6\n" +
+			"COPY --from=bun /lib/x86_64-linux-gnu/libm.so.6 /lib/x86_64-linux-gnu/libm.so.6\n" +
+			"COPY --from=bun /lib64/ld-linux-x86-64.so.2 /lib64/ld-linux-x86-64.so.2\n" +
+			"COPY --from=bun /usr/src /usr/src\n"
 	default:
 		return fmt.Errorf("runtime not supported: %q", runtime)
 	}
@@ -157,12 +171,14 @@ func generateKraftfile(config *kernfile.KernfileConfig, projectPath string) (str
 		"node":   "node:21",
 		"python": "python:3.12",
 		"go":     "base:latest",
+		"bun":    "bun:1.1",
 	}[config.App.Runtime]
 
 	cmdMap := map[string]string{
 		"node":   `"/usr/bin/node", "/usr/src/` + config.App.Entry + `"`,
 		"python": `"/usr/local/bin/python3.12", "/src/` + config.App.Entry + `"`,
 		"go":     `"/usr/src/app"`,
+		"bun":    `"/usr/bin/bun", "run", "/usr/src/` + config.App.Entry + `"`,
 	}
 	appCmd := cmdMap[config.App.Runtime]
 
