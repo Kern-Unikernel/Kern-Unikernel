@@ -32,6 +32,13 @@ func Build(config *kernfile.KernfileConfig, projectPath string) error {
 		return fmt.Errorf("error compiling: %w", err)
 	}
 
+	fmt.Println("→ Generating .uki image...")
+	if err := generateUKI(config, projectPath); err != nil {
+		fmt.Printf("warning: could not generate .uki: %v\n", err)
+	} else {
+		fmt.Println("✓ .uki image generated")
+	}
+
 	fmt.Println("→ Signing image and generating SBOM...")
 
 	configDir, err := os.UserHomeDir()
@@ -77,7 +84,7 @@ func installDependencies(runtime, projectPath string) error {
 	case "node":
 		cmd = exec.Command("npm", "install", "--production")
 	case "python":
-		cmd = exec.Command("python3", "-m", "pip", "install", "-r", "requirements.txt")
+		cmd = exec.Command("python3.12", "-m", "pip", "install", "-r", "requirements.txt")
 	case "go":
 		cmd = exec.Command("go", "mod", "download")
 	default:
@@ -185,4 +192,74 @@ func runBuild(projectPath string) error {
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	return cmd.Run()
+}
+
+func generateUKI(config *kernfile.KernfileConfig, projectPath string) error {
+	initrdPath := filepath.Join(projectPath, ".unikraft", "build", "initramfs-x86_64.cpio")
+	ukiPath := filepath.Join(projectPath, ".unikernel", "image.uki")
+
+	if _, err := os.Stat(initrdPath); err != nil {
+		return fmt.Errorf("initrd not found — run 'kern build' first")
+	}
+
+	// Buscar el kernel más reciente en kraftkit
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("error getting home directory: %w", err)
+	}
+
+	runtimeDir := filepath.Join(home, ".local", "share", "kraftkit", "runtime")
+	entries, err := os.ReadDir(runtimeDir)
+	if err != nil {
+		return fmt.Errorf("kraftkit runtime directory not found: %w", err)
+	}
+
+	var kernelPath string
+	var latestTime int64
+
+	for _, entry := range entries {
+		candidate := filepath.Join(runtimeDir, entry.Name(), "unikraft", "bin", "kernel")
+		info, err := os.Stat(candidate)
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Unix() > latestTime {
+			latestTime = info.ModTime().Unix()
+			kernelPath = candidate
+		}
+	}
+
+	if kernelPath == "" {
+		return fmt.Errorf("kernel not found in kraftkit runtime")
+	}
+
+	cmdlineMap := map[string]string{
+		"node":   "/usr/bin/node /usr/src/" + config.App.Entry,
+		"python": "/usr/local/bin/python3.12 /src/" + config.App.Entry,
+		"go":     "/usr/src/app",
+	}
+	cmdline := fmt.Sprintf(`vfs.fstab=[ "initrd0:/:extract:::" ] -- %s`, cmdlineMap[config.App.Runtime])
+
+	cmdlinePath := filepath.Join(projectPath, ".unikernel", "cmdline.txt")
+	if err := os.WriteFile(cmdlinePath, []byte(cmdline), 0644); err != nil {
+		return fmt.Errorf("error writing cmdline: %w", err)
+	}
+	defer os.Remove(cmdlinePath)
+
+	cmd := exec.Command("objcopy",
+		"--add-section", ".initrd="+initrdPath,
+		"--set-section-flags", ".initrd=readonly,data",
+		"--add-section", ".cmdline="+cmdlinePath,
+		"--set-section-flags", ".cmdline=readonly,data",
+		kernelPath,
+		ukiPath,
+	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("error generating .uki: %w", err)
+	}
+
+	return nil
 }
