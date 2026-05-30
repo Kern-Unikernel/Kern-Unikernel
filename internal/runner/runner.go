@@ -5,16 +5,23 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 )
 
 type HypervisorType string
 
 const (
 	HypervisorKVM  HypervisorType = "kvm"
+	HypervisorHVF  HypervisorType = "hvf"
 	HypervisorQEMU HypervisorType = "qemu-tcg"
 )
 
 func DetectHypervisor() HypervisorType {
+	// macOS con HVF
+	if runtime.GOOS == "darwin" {
+		return HypervisorHVF
+	}
+	// Linux con KVM
 	if _, err := os.Stat("/dev/kvm"); err == nil {
 		return HypervisorKVM
 	}
@@ -116,6 +123,10 @@ func BuildQEMUArgs(cfg RunConfig) []string {
 
 	if cfg.Hypervisor == HypervisorKVM {
 		args = append(args, "-enable-kvm")
+	} else if cfg.Hypervisor == HypervisorHVF {
+		args = append(args, "-accel", "hvf")
+		args = append(args, "-machine", "q35")
+		args = append(args, "-cpu", "host")
 	}
 
 	netdev := "user,id=hostnet0"

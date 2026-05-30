@@ -21,7 +21,6 @@ var composeUpCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-
 		detach, _ := cmd.Flags().GetBool("detach")
 		return compose.Up(composePath, detach)
 	},
@@ -29,7 +28,7 @@ var composeUpCmd = &cobra.Command{
 
 var composeDownCmd = &cobra.Command{
 	Use:   "down",
-	Short: "Stop all services",
+	Short: "Stop and remove all services",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		composePath, err := findComposeFile()
 		if err != nil {
@@ -52,8 +51,8 @@ var composePsCmd = &cobra.Command{
 }
 
 var composeLogsCmd = &cobra.Command{
-	Use:   "logs",
-	Short: "Show logs of all services",
+	Use:   "logs [service]",
+	Short: "Show logs of all services or a specific one",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		composePath, err := findComposeFile()
 		if err != nil {
@@ -61,6 +60,19 @@ var composeLogsCmd = &cobra.Command{
 		}
 		follow, _ := cmd.Flags().GetBool("follow")
 		return compose.Logs(composePath, follow)
+	},
+}
+
+var composeRestartCmd = &cobra.Command{
+	Use:   "restart [service]",
+	Short: "Restart a service",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		composePath, err := findComposeFile()
+		if err != nil {
+			return err
+		}
+		return compose.Restart(composePath, args[0])
 	},
 }
 
@@ -86,6 +98,7 @@ func init() {
 	composeCmd.AddCommand(composeDownCmd)
 	composeCmd.AddCommand(composePsCmd)
 	composeCmd.AddCommand(composeLogsCmd)
+	composeCmd.AddCommand(composeRestartCmd)
 
 	rootCmd.AddCommand(composeCmd)
 }
