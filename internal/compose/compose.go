@@ -47,7 +47,18 @@ func Up(composePath string, detach bool) error {
 
 		serviceDir := filepath.Join(baseDir, service.Build)
 
-		// kern build en el directorio del servicio
+		// kern init si no existe Kernfile
+		if _, err := os.Stat(filepath.Join(serviceDir, "Kernfile")); err != nil {
+			initCmd := exec.Command("kern", "init")
+			initCmd.Dir = serviceDir
+			initCmd.Stdout = os.Stdout
+			initCmd.Stderr = os.Stderr
+			if err := initCmd.Run(); err != nil {
+				return fmt.Errorf("error initializing service %s: %w", name, err)
+			}
+		}
+
+		// kern build
 		buildCmd := exec.Command("kern", "build")
 		buildCmd.Dir = serviceDir
 		buildCmd.Stdout = os.Stdout
@@ -57,7 +68,7 @@ func Up(composePath string, detach bool) error {
 			return fmt.Errorf("error building service %s: %w", name, err)
 		}
 
-		// kern run en el directorio del servicio
+		// kern run
 		runArgs := []string{"run"}
 		if detach {
 			runArgs = append(runArgs, "-d")
