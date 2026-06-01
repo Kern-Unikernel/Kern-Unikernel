@@ -44,6 +44,25 @@ type Metrics struct {
 }
 
 func FindSocket(pid int) (string, error) {
+	// Buscar en directorios de kern directo
+	pattern := fmt.Sprintf("/tmp/kern-*/ctrl.sock")
+	matches, err := filepath.Glob(pattern)
+	if err == nil {
+		for _, match := range matches {
+			pidFile := filepath.Join(filepath.Dir(match), "machine.pid")
+			data, err := os.ReadFile(pidFile)
+			if err != nil {
+				continue
+			}
+			var filePid int
+			fmt.Sscanf(string(data), "%d", &filePid)
+			if filePid == pid {
+				return match, nil
+			}
+		}
+	}
+
+	// Buscar en kraftkit
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -133,7 +152,8 @@ func (c *Client) receive() (map[string]interface{}, error) {
 }
 
 func (c *Client) GetMemoryStats() (uint64, error) {
-	if err := c.send(Message{Execute: "query-balloon"}); err != nil {
+	// Intentar query-memory-size-summary primero
+	if err := c.send(Message{Execute: "query-memory-size-summary"}); err != nil {
 		return 0, err
 	}
 
@@ -142,17 +162,29 @@ func (c *Client) GetMemoryStats() (uint64, error) {
 		return 0, err
 	}
 
-	ret, ok := result["return"].(map[string]interface{})
-	if !ok {
-		return 0, fmt.Errorf("unexpected response format")
+	if ret, ok := result["return"].(map[string]interface{}); ok {
+		if base, ok := ret["base-memory"].(float64); ok {
+			return uint64(base), nil
+		}
 	}
 
-	actual, ok := ret["actual"].(float64)
-	if !ok {
-		return 0, fmt.Errorf("could not read memory stats")
+	// Fallback a query-balloon
+	if err := c.send(Message{Execute: "query-balloon"}); err != nil {
+		return 0, err
 	}
 
-	return uint64(actual), nil
+	result, err = c.receive()
+	if err != nil {
+		return 0, err
+	}
+
+	if ret, ok := result["return"].(map[string]interface{}); ok {
+		if actual, ok := ret["actual"].(float64); ok {
+			return uint64(actual), nil
+		}
+	}
+
+	return 0, fmt.Errorf("could not read memory stats")
 }
 
 func (c *Client) GetCPUStats() ([]interface{}, error) {

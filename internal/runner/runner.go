@@ -46,11 +46,17 @@ type PortMapping struct {
 
 func FindUnikraftPaths(projectPath string) (kernelPath, initrdPath string, err error) {
 	initrdPath = filepath.Join(projectPath, ".unikraft", "build", "initramfs-x86_64.cpio")
-
 	if _, err := os.Stat(initrdPath); err != nil {
 		return "", "", fmt.Errorf("initrd not found — run 'kern build' first")
 	}
 
+	// Primero buscar el kernel en el proyecto
+	localKernel := filepath.Join(projectPath, ".unikraft", "build", "kernel")
+	if _, err := os.Stat(localKernel); err == nil {
+		return localKernel, initrdPath, nil
+	}
+
+	// Fallback: buscar en kraftkit
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", "", fmt.Errorf("error getting home directory: %w", err)
@@ -101,7 +107,14 @@ func RunUnikernel(cfg RunConfig) error {
 }
 
 func BuildQEMUArgs(cfg RunConfig) []string {
-	appendStr := fmt.Sprintf(`vfs.fstab=[ "initrd0:/:extract:::" ] -- %s`, cfg.AppCmd)
+
+	appendStr := fmt.Sprintf(`vfs.fstab=[ "initrd0:/:extract:::" ] env.vars=[ "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" ] -- %s`, cfg.AppCmd)
+
+	// Crear directorio para el socket
+	socketDir := fmt.Sprintf("/tmp/kern-%d", os.Getpid())
+	os.MkdirAll(socketDir, 0755)
+	qmpSocket := filepath.Join(socketDir, "ctrl.sock")
+	pidFile := filepath.Join(socketDir, "machine.pid")
 
 	args := []string{
 		"-kernel", cfg.KernelPath,
@@ -114,11 +127,13 @@ func BuildQEMUArgs(cfg RunConfig) []string {
 		"-nographic",
 		"-no-reboot",
 		"-device", "pvpanic",
-		"-device", "sga",
 		"-display", "none",
 		"-vga", "none",
 		"-parallel", "none",
 		"-rtc", "base=utc",
+		"-qmp", fmt.Sprintf("unix:%s,server,nowait", qmpSocket),
+		"-pidfile", pidFile,
+		"-serial", fmt.Sprintf("file:%s/vm.log", socketDir),
 	}
 
 	if cfg.Hypervisor == HypervisorKVM {

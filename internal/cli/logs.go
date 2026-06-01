@@ -40,6 +40,22 @@ var logsCmd = &cobra.Command{
 }
 
 func findVMLog(pid int) (string, error) {
+	// Buscar en directorios de kern directo
+	matches, _ := filepath.Glob("/tmp/kern-*/vm.log")
+	for _, match := range matches {
+		pidFile := filepath.Join(filepath.Dir(match), "machine.pid")
+		data, err := os.ReadFile(pidFile)
+		if err != nil {
+			continue
+		}
+		var filePid int
+		fmt.Sscanf(string(data), "%d", &filePid)
+		if filePid == pid {
+			return match, nil
+		}
+	}
+
+	// Buscar en kraftkit
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

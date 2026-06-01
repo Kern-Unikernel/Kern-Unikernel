@@ -9,6 +9,7 @@ import (
 
 	"github.com/Kern-Unikernel/Kern-Unikernel/internal/instances"
 	"github.com/Kern-Unikernel/Kern-Unikernel/internal/kernfile"
+	"github.com/Kern-Unikernel/Kern-Unikernel/internal/runner"
 	"github.com/spf13/cobra"
 )
 
@@ -36,62 +37,143 @@ var runCmd = &cobra.Command{
 
 		fmt.Printf("Running %s v%s...\n", config.App.Name, config.App.Version)
 
-		kraftArgs := []string{"run", "--plat", "qemu", "--arch", "x86_64", "-M", profile.Memory}
-
-		if detach {
-			kraftArgs = append(kraftArgs, "--detach")
+		// Intentar usar runner directo de QEMU
+		kernelPath, initrdPath, err := runner.FindUnikraftPaths(projectPath)
+		if err == nil {
+			return runDirect(config, kernelPath, initrdPath, projectPath, detach)
 		}
 
-		for _, p := range config.Network.Ports {
-			kraftArgs = append(kraftArgs, "-p", fmt.Sprintf("%d:%d", p, p))
-		}
+		// Fallback a kraft
+		return kraftRun(config, profile, projectPath, detach)
+	},
+}
 
-		kraftArgs = append(kraftArgs, ".")
-
-		kraftCmd := exec.Command("kraft", kraftArgs...)
-		kraftCmd.Dir = projectPath
-		kraftCmd.Stdout = os.Stdout
-		kraftCmd.Stderr = os.Stderr
-
-		if err := kraftCmd.Run(); err != nil {
+func runDirect(config *kernfile.KernfileConfig, kernelPath, initrdPath, projectPath string, detachMode bool) error {
+	staticRuntimes := map[string]bool{"go": true, "rust": true}
+	if !staticRuntimes[config.App.Runtime] {
+		profile, err := kernfile.LoadProfile(config.App.Runtime)
+		if err != nil {
 			return err
 		}
+		return kraftRun(config, profile, projectPath, detachMode)
+	}
+	hypervisor := runner.DetectHypervisor()
+	fmt.Printf("Hypervisor: %s (direct QEMU)\n", hypervisor)
 
-		if detach {
-			time.Sleep(2 * time.Second)
+	cmdMap := map[string]string{
+		"node":   "/usr/bin/node /usr/src/" + config.App.Entry,
+		"python": "/usr/local/bin/python3.12 /src/" + config.App.Entry,
+		"go":     "/usr/src/app",
+		"rust":   "/usr/src/app",
+		"bun":    "/usr/bin/bun run /usr/src/" + config.App.Entry,
+	}
 
-			qemuPid, err := instances.FindQEMUPid()
-			if err != nil {
-				qemuPid = kraftCmd.Process.Pid
-			}
+	var ports []runner.PortMapping
+	for _, p := range config.Network.Ports {
+		ports = append(ports, runner.PortMapping{
+			Host:      p,
+			Container: p,
+		})
+	}
 
-			memoryMap := map[string]int{
-				"node":   512,
-				"python": 384,
-				"go":     64,
-				"bun":    256,
-				"rust":   64,
-			}
+	memoryMap := map[string]int{
+		"node": 512, "python": 384, "go": 128, "rust": 128, "bun": 256,
+	}
 
-			instance := &instances.Instance{
-				ID:        generateID(),
-				Name:      config.App.Name,
-				Runtime:   config.App.Runtime,
-				PID:       qemuPid,
-				Ports:     config.Network.Ports,
-				MemoryMiB: memoryMap[config.App.Runtime],
-				CreatedAt: time.Now(),
-				Status:    "running",
-			}
-			if err := instances.Save(instance); err != nil {
-				fmt.Printf("warning: could not save instance state: %v\n", err)
-			}
+	cfg := runner.RunConfig{
+		KernelPath: kernelPath,
+		InitrdPath: initrdPath,
+		MemoryMiB:  memoryMap[config.App.Runtime],
+		CPUs:       1,
+		Ports:      ports,
+		Hypervisor: hypervisor,
+		AppCmd:     cmdMap[config.App.Runtime],
+	}
 
-			fmt.Printf("✓ %s running in background (PID %d)\n", config.App.Name, qemuPid)
+	if detachMode {
+		args := runner.BuildQEMUArgs(cfg)
+		qemuCmd := exec.Command("qemu-system-x86_64", args...)
+		qemuCmd.Dir = projectPath
+		if err := qemuCmd.Start(); err != nil {
+			return fmt.Errorf("error starting in background: %w", err)
 		}
 
+		time.Sleep(2 * time.Second)
+
+		instance := &instances.Instance{
+			ID:        generateID(),
+			Name:      config.App.Name,
+			Runtime:   config.App.Runtime,
+			PID:       qemuCmd.Process.Pid,
+			Ports:     config.Network.Ports,
+			MemoryMiB: memoryMap[config.App.Runtime],
+			CreatedAt: time.Now(),
+			Status:    "running",
+		}
+		if err := instances.Save(instance); err != nil {
+			fmt.Printf("warning: could not save instance state: %v\n", err)
+		}
+
+		fmt.Printf("✓ %s running in background (PID %d)\n", config.App.Name, qemuCmd.Process.Pid)
 		return nil
-	},
+	}
+
+	return runner.RunUnikernel(cfg)
+}
+
+func kraftRun(config *kernfile.KernfileConfig, profile *kernfile.RuntimeProfile, projectPath string, detachMode bool) error {
+
+	kraftArgs := []string{"run", "--plat", "qemu", "--arch", "x86_64", "-M", profile.Memory}
+
+	if detachMode {
+		kraftArgs = append(kraftArgs, "--detach")
+	}
+
+	for _, p := range config.Network.Ports {
+		kraftArgs = append(kraftArgs, "-p", fmt.Sprintf("%d:%d", p, p))
+	}
+
+	kraftArgs = append(kraftArgs, ".")
+
+	kraftCmd := exec.Command("kraft", kraftArgs...)
+	kraftCmd.Dir = projectPath
+	kraftCmd.Stdout = os.Stdout
+	kraftCmd.Stderr = os.Stderr
+
+	if err := kraftCmd.Run(); err != nil {
+		return err
+	}
+
+	if detachMode {
+		time.Sleep(2 * time.Second)
+
+		qemuPid, err := instances.FindQEMUPid()
+		if err != nil {
+			qemuPid = kraftCmd.Process.Pid
+		}
+
+		memoryMap := map[string]int{
+			"node": 512, "python": 384, "go": 128, "rust": 128, "bun": 256,
+		}
+
+		instance := &instances.Instance{
+			ID:        generateID(),
+			Name:      config.App.Name,
+			Runtime:   config.App.Runtime,
+			PID:       qemuPid,
+			Ports:     config.Network.Ports,
+			MemoryMiB: memoryMap[config.App.Runtime],
+			CreatedAt: time.Now(),
+			Status:    "running",
+		}
+		if err := instances.Save(instance); err != nil {
+			fmt.Printf("warning: could not save instance state: %v\n", err)
+		}
+
+		fmt.Printf("✓ %s running in background (PID %d)\n", config.App.Name, qemuPid)
+	}
+
+	return nil
 }
 
 func generateID() string {

@@ -64,7 +64,11 @@ func printMetrics(name string, pid int, socketPath string) error {
 
 	memBytes, err := client.GetMemoryStats()
 	if err == nil {
-		fmt.Printf("Memory: %.1f MB\n", float64(memBytes)/1024/1024)
+		fmt.Printf("Memory: %.1f MB (%.1f MiB)\n",
+			float64(memBytes)/1000/1000,
+			float64(memBytes)/1024/1024)
+	} else {
+		fmt.Printf("Memory: unavailable (%v)\n", err)
 	}
 
 	cpus, err := client.GetCPUStats()
