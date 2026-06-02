@@ -49,14 +49,6 @@ var runCmd = &cobra.Command{
 }
 
 func runDirect(config *kernfile.KernfileConfig, kernelPath, initrdPath, projectPath string, detachMode bool) error {
-	staticRuntimes := map[string]bool{"go": true, "rust": true}
-	if !staticRuntimes[config.App.Runtime] {
-		profile, err := kernfile.LoadProfile(config.App.Runtime)
-		if err != nil {
-			return err
-		}
-		return kraftRun(config, profile, projectPath, detachMode)
-	}
 	hypervisor := runner.DetectHypervisor()
 	fmt.Printf("Hypervisor: %s (direct QEMU)\n", hypervisor)
 

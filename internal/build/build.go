@@ -28,16 +28,35 @@ func Build(config *kernfile.KernfileConfig, projectPath string) error {
 		return fmt.Errorf("error generating Kraftfile: %w", err)
 	}
 
-	fmt.Println("→ Compiling unikernel...")
-	if err := runBuild(projectPath); err != nil {
-		return fmt.Errorf("error compiling: %w", err)
+	fmt.Println("→ Compiling unikernel (kraft-free)...")
+	unikraftDir := filepath.Join(projectPath, ".unikraft", "build")
+	if err := os.MkdirAll(unikraftDir, 0755); err != nil {
+		return fmt.Errorf("error creating build directory: %w", err)
 	}
 
-	fmt.Println("→ Copying kernel...")
-	if err := copyKernel(projectPath); err != nil {
-		fmt.Printf("warning: could not copy kernel: %v\n", err)
+	kernelPath, kerr := downloadKernel(config.App.Runtime, unikraftDir)
+	if kerr != nil {
+		fmt.Println("warning: skopeo not available, falling back to kraft...")
+		if err := runBuild(projectPath); err != nil {
+			return fmt.Errorf("error compiling: %w", err)
+		}
+		if err := copyKernel(projectPath); err != nil {
+			fmt.Printf("warning: could not copy kernel: %v\n", err)
+		}
 	} else {
-		fmt.Println("✓ Kernel copied")
+		fmt.Printf("✓ Kernel downloaded at %s\n", kernelPath)
+
+		rootfsDir, err := buildRootfs(projectPath, config.App.Runtime)
+		if err != nil {
+			return fmt.Errorf("error building rootfs: %w", err)
+		}
+
+		initrdPath := filepath.Join(unikraftDir, "initramfs-x86_64.cpio")
+		if err := generateInitramfs(rootfsDir, initrdPath); err != nil {
+			return fmt.Errorf("error generating initramfs: %w", err)
+		}
+		fmt.Println("✓ Initramfs generated")
+		os.RemoveAll(rootfsDir)
 	}
 
 	fmt.Println("→ Generating .uki image...")
@@ -48,7 +67,6 @@ func Build(config *kernfile.KernfileConfig, projectPath string) error {
 	}
 
 	fmt.Println("→ Signing image and generating SBOM...")
-
 	configDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("error getting home directory: %w", err)
@@ -296,34 +314,9 @@ func generateUKI(config *kernfile.KernfileConfig, projectPath string) error {
 		return fmt.Errorf("initrd not found — run 'kern build' first")
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("error getting home directory: %w", err)
-	}
-
-	runtimeDir := filepath.Join(home, ".local", "share", "kraftkit", "runtime")
-	entries, err := os.ReadDir(runtimeDir)
-	if err != nil {
-		return fmt.Errorf("kraftkit runtime directory not found: %w", err)
-	}
-
-	var kernelPath string
-	var latestTime int64
-
-	for _, entry := range entries {
-		candidate := filepath.Join(runtimeDir, entry.Name(), "unikraft", "bin", "kernel")
-		info, err := os.Stat(candidate)
-		if err != nil {
-			continue
-		}
-		if info.ModTime().Unix() > latestTime {
-			latestTime = info.ModTime().Unix()
-			kernelPath = candidate
-		}
-	}
-
-	if kernelPath == "" {
-		return fmt.Errorf("kernel not found in kraftkit runtime")
+	kernelPath := filepath.Join(projectPath, ".unikraft", "build", "kernel")
+	if _, err := os.Stat(kernelPath); err != nil {
+		return fmt.Errorf("kernel not found — run 'kern build' first")
 	}
 
 	cmdlineMap := map[string]string{
