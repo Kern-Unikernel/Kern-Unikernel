@@ -63,7 +63,7 @@ func createKernfile(path, runtime string) error {
 	content := fmt.Sprintf(`kernfile = "1.0"
 
 [app]
-name    = "mi-app"
+name    = "%s"
 version = "0.1.0"
 runtime = "%s"
 entry   = "server.ts"
@@ -77,7 +77,7 @@ cpu    = 1
 
 [env]
 NODE_ENV = "production"
-`, runtime)
+`, filepath.Base(path), runtime)
 
 	if err := os.WriteFile(kernfilePath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("error creating Kernfile: %w", err)
