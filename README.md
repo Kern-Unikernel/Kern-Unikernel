@@ -1,4 +1,5 @@
 # kern
+<img width="80%" alt="image" src="https://github.com/user-attachments/assets/9aaba24d-f8ad-4505-aed8-64921f6ad8ae" />
 
 A CLI tool to build, run and distribute applications as unikernels using Unikraft.
 
