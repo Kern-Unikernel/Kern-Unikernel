@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/Kern-Unikernel/Kern-Unikernel/internal/instances"
@@ -14,6 +15,9 @@ import (
 )
 
 var detach bool
+var portOverrides []string
+var envOverrides []string
+var attach bool
 
 var runCmd = &cobra.Command{
 	Use:   "run",
@@ -35,12 +39,38 @@ var runCmd = &cobra.Command{
 			return fmt.Errorf("error loading runtime profile: %w", err)
 		}
 
+		// Aplicar overrides de puertos
+		if len(portOverrides) > 0 {
+			config.Network.Ports = []int{}
+			for _, p := range portOverrides {
+				parts := strings.Split(p, ":")
+				if len(parts) == 2 {
+					var port int
+					fmt.Sscanf(parts[0], "%d", &port)
+					config.Network.Ports = append(config.Network.Ports, port)
+				}
+			}
+		}
+
+		// Aplicar overrides de env
+		if len(envOverrides) > 0 {
+			if config.Env == nil {
+				config.Env = map[string]string{}
+			}
+			for _, e := range envOverrides {
+				parts := strings.SplitN(e, "=", 2)
+				if len(parts) == 2 {
+					config.Env[parts[0]] = parts[1]
+				}
+			}
+		}
+
 		fmt.Printf("Running %s v%s...\n", config.App.Name, config.App.Version)
 
 		// Intentar usar runner directo de QEMU
 		kernelPath, initrdPath, err := runner.FindUnikraftPaths(projectPath)
 		if err == nil {
-			return runDirect(config, kernelPath, initrdPath, projectPath, detach)
+			return runDirect(config, kernelPath, initrdPath, projectPath, detach, attach)
 		}
 
 		// Fallback a kraft
@@ -48,7 +78,7 @@ var runCmd = &cobra.Command{
 	},
 }
 
-func runDirect(config *kernfile.KernfileConfig, kernelPath, initrdPath, projectPath string, detachMode bool) error {
+func runDirect(config *kernfile.KernfileConfig, kernelPath, initrdPath, projectPath string, detachMode bool, attachMode bool) error {
 	hypervisor := runner.DetectHypervisor()
 	fmt.Printf("Hypervisor: %s (direct QEMU)\n", hypervisor)
 
@@ -80,6 +110,12 @@ func runDirect(config *kernfile.KernfileConfig, kernelPath, initrdPath, projectP
 		Ports:      ports,
 		Hypervisor: hypervisor,
 		AppCmd:     cmdMap[config.App.Runtime],
+		Env:        config.Env,
+	}
+
+	if attachMode {
+		// Modo interactivo — foreground con logs en tiempo real
+		return runner.RunUnikernel(cfg)
 	}
 
 	if detachMode {
@@ -114,7 +150,6 @@ func runDirect(config *kernfile.KernfileConfig, kernelPath, initrdPath, projectP
 }
 
 func kraftRun(config *kernfile.KernfileConfig, profile *kernfile.RuntimeProfile, projectPath string, detachMode bool) error {
-
 	kraftArgs := []string{"run", "--plat", "qemu", "--arch", "x86_64", "-M", profile.Memory}
 
 	if detachMode {
@@ -180,5 +215,8 @@ func generateID() string {
 
 func init() {
 	runCmd.Flags().BoolVarP(&detach, "detach", "d", false, "Run in background")
+	runCmd.Flags().BoolVarP(&attach, "attach", "a", false, "Interactive mode with real-time logs")
+	runCmd.Flags().StringArrayVarP(&portOverrides, "port", "p", []string{}, "Override ports (format: host:container)")
+	runCmd.Flags().StringArrayVarP(&envOverrides, "env", "e", []string{}, "Set environment variables (format: KEY=VALUE)")
 	rootCmd.AddCommand(runCmd)
 }

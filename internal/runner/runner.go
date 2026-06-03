@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 type HypervisorType string
@@ -107,8 +108,13 @@ func RunUnikernel(cfg RunConfig) error {
 }
 
 func BuildQEMUArgs(cfg RunConfig) []string {
-
-	appendStr := fmt.Sprintf(`vfs.fstab=[ "initrd0:/:extract:::" ] env.vars=[ "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" ] -- %s`, cfg.AppCmd)
+	// Construir env.vars — el PATH siempre primero
+	envList := []string{`"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"`}
+	for k, v := range cfg.Env {
+		envList = append(envList, fmt.Sprintf(`"%s=%s"`, k, v))
+	}
+	envVars := strings.Join(envList, ", ")
+	appendStr := fmt.Sprintf(`vfs.fstab=[ "initrd0:/:extract:::" ] env.vars=[ %s ] -- %s`, envVars, cfg.AppCmd)
 
 	// Crear directorio para el socket
 	socketDir := fmt.Sprintf("/tmp/kern-%d", os.Getpid())
