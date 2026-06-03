@@ -1,10 +1,12 @@
 package build
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 var runtimeOSMap = map[string]string{
@@ -99,11 +101,54 @@ func extractKernelFromOCI(ociDir, destDir string) (string, error) {
 }
 
 func buildRootfs(projectPath, runtime string) (string, error) {
+	fmt.Println("→ Building rootfs with buildah...")
+
+	imageName := "kern-rootfs-" + runtime
+
+	// buildah build
+	buildCmd := exec.Command("buildah", "build",
+		"-t", imageName,
+		"-f", filepath.Join(projectPath, "Dockerfile"),
+		projectPath,
+	)
+	buildCmd.Stdout = os.Stdout
+	buildCmd.Stderr = os.Stderr
+	if err := buildCmd.Run(); err != nil {
+		// Fallback a Docker si buildah no está disponible
+		fmt.Println("warning: buildah failed, falling back to Docker...")
+		return buildRootfsDocker(projectPath, runtime)
+	}
+
+	// Exportar imagen a tar OCI
+	tarPath := filepath.Join(projectPath, ".unikraft", "rootfs.tar")
+	pushCmd := exec.Command("buildah", "push",
+		"localhost/"+imageName,
+		"oci-archive:"+tarPath,
+	)
+	pushCmd.Stdout = os.Stdout
+	pushCmd.Stderr = os.Stderr
+	if err := pushCmd.Run(); err != nil {
+		return "", fmt.Errorf("error exporting rootfs: %w", err)
+	}
+
+	// Extraer la capa del OCI tar
+	rootfsDir := filepath.Join(projectPath, ".unikraft", "rootfs")
+	if err := extractOCILayer(tarPath, rootfsDir); err != nil {
+		return "", fmt.Errorf("error extracting rootfs: %w", err)
+	}
+
+	// Limpiar
+	os.Remove(tarPath)
+	exec.Command("buildah", "rmi", "localhost/"+imageName).Run()
+
+	return rootfsDir, nil
+}
+
+func buildRootfsDocker(projectPath, runtime string) (string, error) {
 	fmt.Println("→ Building rootfs with Docker...")
 
 	imageName := "kern-rootfs-" + runtime
 
-	// Docker build
 	buildCmd := exec.Command("docker", "build",
 		"-t", imageName,
 		"-f", filepath.Join(projectPath, "Dockerfile"),
@@ -115,18 +160,14 @@ func buildRootfs(projectPath, runtime string) (string, error) {
 		return "", fmt.Errorf("error building rootfs: %w", err)
 	}
 
-	// Extraer el contenido del contenedor
 	rootfsDir := filepath.Join(projectPath, ".unikraft", "rootfs")
 	if err := os.MkdirAll(rootfsDir, 0755); err != nil {
 		return "", err
 	}
 
-	// Crear contenedor temporal
 	createOut, err := exec.Command("docker", "create",
-		"--entrypoint", "",
-		imageName, "sh").Output()
+		"--entrypoint", "", imageName, "sh").Output()
 	if err != nil {
-		// Intentar sin entrypoint
 		createOut, err = exec.Command("docker", "create",
 			imageName, "/bin/true").Output()
 		if err != nil {
@@ -134,16 +175,11 @@ func buildRootfs(projectPath, runtime string) (string, error) {
 		}
 	}
 
-	containerID := string(createOut)
-	if len(containerID) > 0 && containerID[len(containerID)-1] == '\n' {
-		containerID = containerID[:len(containerID)-1]
-	}
+	containerID := strings.TrimSpace(string(createOut))
 
-	// Exportar y extraer
 	exportCmd := exec.Command("docker", "export", containerID)
 	tarCmd := exec.Command("tar", "-x", "-C", rootfsDir)
 	tarCmd.Stdin, _ = exportCmd.StdoutPipe()
-	tarCmd.Stdout = os.Stdout
 	tarCmd.Stderr = os.Stderr
 
 	if err := tarCmd.Start(); err != nil {
@@ -156,10 +192,69 @@ func buildRootfs(projectPath, runtime string) (string, error) {
 		return "", err
 	}
 
-	// Eliminar contenedor
 	exec.Command("docker", "rm", containerID).Run()
-
 	return rootfsDir, nil
+}
+
+func extractOCILayer(tarPath, rootfsDir string) error {
+	if err := os.MkdirAll(rootfsDir, 0755); err != nil {
+		return err
+	}
+
+	// Leer el index.json del tar OCI
+	indexCmd := exec.Command("tar", "xOf", tarPath, "index.json")
+	indexData, err := indexCmd.Output()
+	if err != nil {
+		return fmt.Errorf("error reading OCI index: %w", err)
+	}
+
+	var index struct {
+		Manifests []struct {
+			Digest string `json:"digest"`
+		} `json:"manifests"`
+	}
+	if err := json.Unmarshal(indexData, &index); err != nil {
+		return fmt.Errorf("error parsing OCI index: %w", err)
+	}
+
+	if len(index.Manifests) == 0 {
+		return fmt.Errorf("no manifests found in OCI image")
+	}
+
+	manifestDigest := strings.TrimPrefix(index.Manifests[0].Digest, "sha256:")
+	manifestPath := "blobs/sha256/" + manifestDigest
+
+	manifestCmd := exec.Command("tar", "xOf", tarPath, manifestPath)
+	manifestData, err := manifestCmd.Output()
+	if err != nil {
+		return fmt.Errorf("error reading manifest: %w", err)
+	}
+
+	var manifest struct {
+		Layers []struct {
+			Digest string `json:"digest"`
+		} `json:"layers"`
+	}
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return fmt.Errorf("error parsing manifest: %w", err)
+	}
+
+	if len(manifest.Layers) == 0 {
+		return fmt.Errorf("no layers found in OCI image")
+	}
+
+	layerDigest := strings.TrimPrefix(manifest.Layers[0].Digest, "sha256:")
+	layerPath := "blobs/sha256/" + layerDigest
+
+	// Extraer la capa
+	extractCmd := exec.Command("sh", "-c",
+		fmt.Sprintf("tar xOf %s %s | tar xz -C %s", tarPath, layerPath, rootfsDir))
+	extractCmd.Stderr = os.Stderr
+	if err := extractCmd.Run(); err != nil {
+		return fmt.Errorf("error extracting layer: %w", err)
+	}
+
+	return nil
 }
 
 func generateInitramfs(rootfsDir, outputPath string) error {
