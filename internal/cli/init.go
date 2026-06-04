@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Kern-Unikernel/Kern-Unikernel/internal/common"
 	"github.com/spf13/cobra"
 )
 
@@ -18,6 +19,10 @@ var initCmd = &cobra.Command{
 		}
 
 		runtime := detectRuntime(projectPath)
+		fmt.Println(runtime)
+		if runtime == "" {
+			return fmt.Errorf("Could not find any compatible runtime (%s)...", common.GetStringSupportedRuntimes())
+		}
 		fmt.Printf("Runtime detected: %s\n", runtime)
 
 		return createKernfile(projectPath, runtime)
@@ -42,7 +47,7 @@ func detectRuntime(path string) string {
 		}
 	}
 
-	return "node"
+	return ""
 }
 
 func createKernfile(path, runtime string) error {
