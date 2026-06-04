@@ -36,14 +36,6 @@ func detectRuntime(path string) string {
 		{"package.json", "node"},
 	}
 
-	// Bun: tiene tsconfig.json Y archivos .ts
-	if _, err := os.Stat(path + "/tsconfig.json"); err == nil {
-		matches, _ := filepath.Glob(path + "/*.ts")
-		if len(matches) > 0 {
-			return "bun"
-		}
-	}
-
 	for _, check := range checks {
 		if _, err := os.Stat(path + "/" + check.file); err == nil {
 			return check.runtime
