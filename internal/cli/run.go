@@ -17,7 +17,6 @@ import (
 var detach bool
 var portOverrides []string
 var envOverrides []string
-var attach bool
 
 var runCmd = &cobra.Command{
 	Use:   "run",
@@ -70,7 +69,7 @@ var runCmd = &cobra.Command{
 		// Intentar usar runner directo de QEMU
 		kernelPath, initrdPath, err := runner.FindUnikraftPaths(projectPath)
 		if err == nil {
-			return runDirect(config, kernelPath, initrdPath, projectPath, detach, attach)
+			return runDirect(config, kernelPath, initrdPath, projectPath, detach)
 		}
 
 		// Fallback a kraft
@@ -78,7 +77,7 @@ var runCmd = &cobra.Command{
 	},
 }
 
-func runDirect(config *kernfile.KernfileConfig, kernelPath, initrdPath, projectPath string, detachMode bool, attachMode bool) error {
+func runDirect(config *kernfile.KernfileConfig, kernelPath, initrdPath, projectPath string, detachMode bool) error {
 	hypervisor := runner.DetectHypervisor()
 	fmt.Printf("Hypervisor: %s (direct QEMU)\n", hypervisor)
 
@@ -111,11 +110,6 @@ func runDirect(config *kernfile.KernfileConfig, kernelPath, initrdPath, projectP
 		Hypervisor: hypervisor,
 		AppCmd:     cmdMap[config.App.Runtime],
 		Env:        config.Env,
-	}
-
-	if attachMode {
-		// Modo interactivo — foreground con logs en tiempo real
-		return runner.RunUnikernel(cfg)
 	}
 
 	if detachMode {
@@ -215,7 +209,6 @@ func generateID() string {
 
 func init() {
 	runCmd.Flags().BoolVarP(&detach, "detach", "d", false, "Run in background")
-	runCmd.Flags().BoolVarP(&attach, "attach", "a", false, "Interactive mode with real-time logs")
 	runCmd.Flags().StringArrayVarP(&portOverrides, "port", "p", []string{}, "Override ports (format: host:container)")
 	runCmd.Flags().StringArrayVarP(&envOverrides, "env", "e", []string{}, "Set environment variables (format: KEY=VALUE)")
 	rootCmd.AddCommand(runCmd)
