@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/Kern-Unikernel/Kern-Unikernel/internal/kernfile"
 	"github.com/spf13/cobra"
@@ -38,6 +40,7 @@ var inspectCmd = &cobra.Command{
 		}
 
 		unikernelDir := filepath.Join(projectPath, ".unikernel")
+		unikraftDir := filepath.Join(projectPath, ".unikraft", "build")
 
 		fmt.Println("=== Image Info ===")
 		fmt.Printf("Name:         %s\n", config.App.Name)
@@ -47,8 +50,6 @@ var inspectCmd = &cobra.Command{
 		fmt.Println()
 
 		fmt.Println("=== Image Size ===")
-
-		// Tamaño del .uki
 		ukiPath := filepath.Join(unikernelDir, "image.uki")
 		if info, err := os.Stat(ukiPath); err == nil {
 			fmt.Printf("UKI:          %s\n", formatSize(info.Size()))
@@ -56,24 +57,31 @@ var inspectCmd = &cobra.Command{
 			fmt.Println("UKI:          not built yet")
 		}
 
-		// Tamaño del initrd
-		initrdPath := filepath.Join(projectPath, ".unikraft", "build", "initramfs-x86_64.cpio")
+		initrdPath := filepath.Join(unikraftDir, "initramfs-x86_64.cpio")
 		if info, err := os.Stat(initrdPath); err == nil {
 			fmt.Printf("Initrd:       %s\n", formatSize(info.Size()))
 		}
 
+		kernelPath := filepath.Join(unikraftDir, "kernel")
+		if info, err := os.Stat(kernelPath); err == nil {
+			fmt.Printf("Kernel:       %s\n", formatSize(info.Size()))
+		}
 		fmt.Println()
 
 		fmt.Println("=== Runtime ===")
 		memoryMap := map[string]string{
 			"node":   "512Mi",
 			"python": "384Mi",
-			"go":     "64Mi",
+			"go":     "128Mi",
+			"rust":   "128Mi",
+			"bun":    "256Mi",
 		}
 		bootMap := map[string]string{
 			"node":   "~10ms",
 			"python": "~11ms",
 			"go":     "~8ms",
+			"rust":   "~8ms",
+			"bun":    "~10ms",
 		}
 		fmt.Printf("Min memory:   %s\n", memoryMap[config.App.Runtime])
 		fmt.Printf("Boot time:    %s\n", bootMap[config.App.Runtime])
@@ -89,9 +97,33 @@ var inspectCmd = &cobra.Command{
 		}
 		fmt.Println()
 
-		fmt.Println("=== Security ===")
+		// Secciones del .uki con readelf
+		if _, err := os.Stat(ukiPath); err == nil {
+			fmt.Println("=== UKI Sections ===")
+			sections, err := getUKISections(ukiPath)
+			if err == nil {
+				for _, s := range sections {
+					fmt.Printf("  %s\n", s)
+				}
+			}
+			fmt.Println()
+		}
 
-		// Firma
+		// Librerías del initramfs
+		if _, err := os.Stat(initrdPath); err == nil {
+			fmt.Println("=== Dependencies ===")
+			libs, err := getInitramfsLibs(initrdPath)
+			if err == nil && len(libs) > 0 {
+				for _, lib := range libs {
+					fmt.Printf("  %s\n", lib)
+				}
+			} else {
+				fmt.Println("  No libraries found")
+			}
+			fmt.Println()
+		}
+
+		fmt.Println("=== Security ===")
 		sigPath := filepath.Join(unikernelDir, "image.uki.sig")
 		if _, err := os.Stat(sigPath); err == nil {
 			fmt.Println("Signature:    ✓ ed25519")
@@ -99,7 +131,6 @@ var inspectCmd = &cobra.Command{
 			fmt.Println("Signature:    ✗ not signed")
 		}
 
-		// SBOM
 		sbomPath := filepath.Join(unikernelDir, "image.sbom")
 		if data, err := os.ReadFile(sbomPath); err == nil {
 			var sbom SBOM
@@ -121,6 +152,81 @@ var inspectCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+func getUKISections(ukiPath string) ([]string, error) {
+	out, err := exec.Command("readelf", "-S", "--wide", ukiPath).Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var sections []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "[") || strings.HasPrefix(line, "[Nr]") {
+			continue
+		}
+		// Eliminar el número: [ 1] -> .text ...
+		bracketEnd := strings.Index(line, "]")
+		if bracketEnd == -1 {
+			continue
+		}
+		line = strings.TrimSpace(line[bracketEnd+1:])
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 6 {
+			continue
+		}
+		name := fields[0]
+		if name == "" || name == "NULL" {
+			continue
+		}
+
+		interestingPrefixes := []string{".text", ".data", ".rodata", ".cmdline", ".initrd", ".bss"}
+		show := false
+		for _, prefix := range interestingPrefixes {
+			if strings.HasPrefix(name, prefix) {
+				show = true
+				break
+			}
+		}
+		if !show {
+			continue
+		}
+
+		// El tamaño está en hex en la columna 4 (índice 4)
+		sizeHex := fields[4]
+		var size int64
+		fmt.Sscanf(sizeHex, "%x", &size)
+		sections = append(sections, fmt.Sprintf("  %-30s %s", name, formatSize(size)))
+	}
+	return sections, nil
+}
+
+func getInitramfsLibs(initrdPath string) ([]string, error) {
+	cmd := exec.Command("sh", "-c",
+		fmt.Sprintf("cpio -t < %s 2>/dev/null | grep -E '^usr/src/node_modules/[^/]+$' | sed 's|usr/src/node_modules/||' | sort", initrdPath))
+	out, err := cmd.Output()
+	if err != nil {
+		// Para Go y Rust mostrar los binarios
+		cmd = exec.Command("sh", "-c",
+			fmt.Sprintf("cpio -t < %s 2>/dev/null | grep -v '/$' | grep -v node_modules | sort", initrdPath))
+		out, err = cmd.Output()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var files []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
 }
 
 func formatSize(bytes int64) string {
