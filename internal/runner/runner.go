@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 type HypervisorType string
@@ -30,14 +31,16 @@ func DetectHypervisor() HypervisorType {
 }
 
 type RunConfig struct {
-	KernelPath string
-	InitrdPath string
-	MemoryMiB  int
-	CPUs       int
-	Ports      []PortMapping
-	Hypervisor HypervisorType
-	AppCmd     string
-	Env        map[string]string
+	KernelPath   string
+	InitrdPath   string
+	MemoryMiB    int
+	CPUs         int
+	Ports        []PortMapping
+	Hypervisor   HypervisorType
+	AppCmd       string
+	Env          map[string]string
+	TAPInterface string
+	MACAddress   string
 }
 
 type PortMapping struct {
@@ -117,7 +120,7 @@ func BuildQEMUArgs(cfg RunConfig) []string {
 	appendStr := fmt.Sprintf(`vfs.fstab=[ "initrd0:/:extract:::" ] env.vars=[ %s ] -- %s`, envVars, cfg.AppCmd)
 
 	// Crear directorio para el socket
-	socketDir := fmt.Sprintf("/tmp/kern-%d", os.Getpid())
+	socketDir := fmt.Sprintf("/tmp/kern-%d-%d", os.Getpid(), time.Now().UnixNano())
 	os.MkdirAll(socketDir, 0755)
 	qmpSocket := filepath.Join(socketDir, "ctrl.sock")
 	pidFile := filepath.Join(socketDir, "machine.pid")
@@ -149,15 +152,21 @@ func BuildQEMUArgs(cfg RunConfig) []string {
 		args = append(args, "-machine", "q35")
 		args = append(args, "-cpu", "host")
 	}
-
-	netdev := "user,id=hostnet0"
-	for _, p := range cfg.Ports {
-		netdev += fmt.Sprintf(",hostfwd=tcp::%d-:%d", p.Host, p.Container)
+	// Networking — TAP para compose o user para run normal
+	if cfg.TAPInterface != "" {
+		args = append(args,
+			"-netdev", fmt.Sprintf("tap,id=hostnet0,ifname=%s,script=no,downscript=no", cfg.TAPInterface),
+			"-device", fmt.Sprintf("virtio-net-pci,netdev=hostnet0,mac=%s", cfg.MACAddress),
+		)
+	} else {
+		netdev := "user,id=hostnet0"
+		for _, p := range cfg.Ports {
+			netdev += fmt.Sprintf(",hostfwd=tcp::%d-:%d", p.Host, p.Container)
+		}
+		args = append(args,
+			"-netdev", netdev,
+			"-device", "virtio-net-pci,netdev=hostnet0",
+		)
 	}
-	args = append(args,
-		"-netdev", netdev,
-		"-device", "virtio-net-pci,netdev=hostnet0",
-	)
-
 	return args
 }

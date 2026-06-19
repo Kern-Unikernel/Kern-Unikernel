@@ -2,11 +2,17 @@ package compose
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"time"
 
+	"github.com/Kern-Unikernel/Kern-Unikernel/internal/instances"
+	"github.com/Kern-Unikernel/Kern-Unikernel/internal/kernfile"
+	"github.com/Kern-Unikernel/Kern-Unikernel/internal/network"
+	"github.com/Kern-Unikernel/Kern-Unikernel/internal/runner"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,6 +27,10 @@ type Service struct {
 	Ports     []string          `yaml:"ports"`
 	Env       map[string]string `yaml:"env"`
 	DependsOn []string          `yaml:"depends_on"`
+}
+
+var memoryMap = map[string]int{
+	"node": 512, "python": 384, "go": 256, "rust": 256, "bun": 256,
 }
 
 func Parse(path string) (*ComposeFile, error) {
@@ -50,12 +60,47 @@ func Up(composePath string, detach bool) error {
 		return err
 	}
 
+	// Configurar networking si hay más de un servicio
+	var networks map[string]network.ServiceNet
+	if len(compose.Services) > 1 {
+		fmt.Println("→ Setting up network bridge...")
+		if err := network.SetupBridge(); err != nil {
+			return fmt.Errorf("error setting up bridge: %w", err)
+		}
+
+		networks = network.BuildServiceNetworks(ordered)
+
+		for _, name := range ordered {
+			svc := networks[name]
+			fmt.Printf("  Creating TAP for %s (%s → %s)\n", name, svc.TAP, svc.IP)
+			if err := network.CreateTAP(svc.TAP); err != nil {
+				return fmt.Errorf("error creating TAP for %s: %w", name, err)
+			}
+		}
+
+		if err := network.StartDNSMasq(networks); err != nil {
+			return fmt.Errorf("error starting DHCP: %w", err)
+		}
+
+		time.Sleep(1 * time.Second)
+		fmt.Println("✓ Network ready")
+		fmt.Println()
+
+		fmt.Println("Service IPs:")
+		for _, name := range ordered {
+			svc := networks[name]
+			fmt.Printf("  %-15s %s\n", name, svc.IP)
+		}
+		fmt.Println()
+	}
+
 	for _, name := range ordered {
 		service := compose.Services[name]
 		fmt.Printf("Starting service: %s\n", name)
 
 		serviceDir := filepath.Join(baseDir, service.Build)
 
+		// kern init si no existe Kernfile
 		if _, err := os.Stat(filepath.Join(serviceDir, "Kernfile")); err != nil {
 			initCmd := exec.Command("kern", "init")
 			initCmd.Dir = serviceDir
@@ -66,6 +111,7 @@ func Up(composePath string, detach bool) error {
 			}
 		}
 
+		// kern build
 		buildCmd := exec.Command("kern", "build")
 		buildCmd.Dir = serviceDir
 		buildCmd.Stdout = os.Stdout
@@ -74,25 +120,84 @@ func Up(composePath string, detach bool) error {
 			return fmt.Errorf("error building service %s: %w", name, err)
 		}
 
-		runArgs := []string{"run"}
-		if detach {
-			runArgs = append(runArgs, "-d")
+		// Parsear Kernfile para obtener config
+		config, err := kernfile.ParseKernfile(filepath.Join(serviceDir, "Kernfile"))
+		if err != nil {
+			return fmt.Errorf("error reading Kernfile for %s: %w", name, err)
 		}
 
-		runCmd := exec.Command("kern", runArgs...)
-		runCmd.Dir = serviceDir
-		runCmd.Stdout = os.Stdout
-		runCmd.Stderr = os.Stderr
-		if err := runCmd.Run(); err != nil {
-			return fmt.Errorf("error starting service %s: %w", name, err)
+		// Rutas del kernel e initrd
+		kernelPath := filepath.Join(serviceDir, ".unikraft", "build", "kernel")
+		initrdPath := filepath.Join(serviceDir, ".unikraft", "build", "initramfs-x86_64.cpio")
+
+		cmdMap := map[string]string{
+			"node":   "/usr/bin/node /usr/src/" + config.App.Entry,
+			"python": "/usr/local/bin/python3.12 /src/" + config.App.Entry,
+			"go":     "/usr/src/app",
+			"rust":   "/usr/src/app",
+			"bun":    "/usr/bin/bun run /usr/src/" + config.App.Entry,
 		}
 
-		// Esperar a que el servicio esté listo antes de continuar
-		if detach {
-			time.Sleep(3 * time.Second)
+		cfg := runner.RunConfig{
+			KernelPath: kernelPath,
+			InitrdPath: initrdPath,
+			MemoryMiB:  memoryMap[config.App.Runtime],
+			CPUs:       1,
+			Hypervisor: runner.DetectHypervisor(),
+			AppCmd:     cmdMap[config.App.Runtime],
+			Env:        config.Env,
 		}
 
-		fmt.Printf("✓ %s started\n", name)
+		// Usar TAP si hay networking
+		if networks != nil {
+			svc := networks[name]
+			cfg.TAPInterface = svc.TAP
+			cfg.MACAddress = svc.MAC
+		} else {
+			// User networking con port forwarding
+			for _, p := range config.Network.Ports {
+				cfg.Ports = append(cfg.Ports, runner.PortMapping{
+					Host:      p,
+					Container: p,
+				})
+			}
+		}
+
+		// Lanzar QEMU directamente
+		args := runner.BuildQEMUArgs(cfg)
+
+		// Crear directorio para socket y logs
+		socketDir := fmt.Sprintf("/tmp/kern-compose-%s", name)
+		os.MkdirAll(socketDir, 0755)
+
+		// Añadir log file
+		qemuCmd := exec.Command("qemu-system-x86_64", args...)
+		qemuCmd.Dir = serviceDir
+		qemuCmd.Stdout = os.Stdout
+		qemuCmd.Stderr = os.Stderr
+
+		if err := qemuCmd.Start(); err != nil {
+			return fmt.Errorf("error starting %s: %w", name, err)
+		}
+
+		time.Sleep(2 * time.Second)
+
+		// Guardar instancia
+		instance := &instances.Instance{
+			ID:        generateID(),
+			Name:      name,
+			Runtime:   config.App.Runtime,
+			PID:       qemuCmd.Process.Pid,
+			Ports:     config.Network.Ports,
+			MemoryMiB: memoryMap[config.App.Runtime],
+			CreatedAt: time.Now(),
+			Status:    "running",
+		}
+		if err := instances.Save(instance); err != nil {
+			fmt.Printf("warning: could not save instance state: %v\n", err)
+		}
+
+		fmt.Printf("✓ %s started (PID %d)\n", name, qemuCmd.Process.Pid)
 	}
 
 	return nil
@@ -118,6 +223,18 @@ func Down(composePath string) error {
 		rmCmd.Run()
 
 		fmt.Printf("✓ %s stopped\n", name)
+	}
+
+	// Limpiar networking
+	if len(compose.Services) > 1 {
+		fmt.Println("→ Tearing down network...")
+		ordered, _ := sortServices(compose.Services)
+		networks := network.BuildServiceNetworks(ordered)
+		for _, svc := range networks {
+			network.DeleteTAP(svc.TAP)
+		}
+		network.TeardownBridge()
+		fmt.Println("✓ Network removed")
 	}
 
 	return nil
@@ -232,11 +349,27 @@ func sortServices(services map[string]Service) ([]string, error) {
 		return nil
 	}
 
+	names := []string{}
 	for name := range services {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
 		if err := visit(name); err != nil {
 			return nil, err
 		}
 	}
 
 	return ordered, nil
+}
+
+func generateID() string {
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	b := make([]byte, 8)
+	for i := range b {
+		b[i] = chars[r.Intn(len(chars))]
+	}
+	return string(b)
 }

@@ -101,15 +101,20 @@ func runDirect(config *kernfile.KernfileConfig, kernelPath, initrdPath, projectP
 		"node": 512, "python": 384, "go": 128, "rust": 128, "bun": 256,
 	}
 
+	tapIface := os.Getenv("KERN_TAP")
+	macAddr := os.Getenv("KERN_MAC")
+
 	cfg := runner.RunConfig{
-		KernelPath: kernelPath,
-		InitrdPath: initrdPath,
-		MemoryMiB:  memoryMap[config.App.Runtime],
-		CPUs:       1,
-		Ports:      ports,
-		Hypervisor: hypervisor,
-		AppCmd:     cmdMap[config.App.Runtime],
-		Env:        config.Env,
+		KernelPath:   kernelPath,
+		InitrdPath:   initrdPath,
+		MemoryMiB:    memoryMap[config.App.Runtime],
+		CPUs:         1,
+		Ports:        ports,
+		Hypervisor:   hypervisor,
+		AppCmd:       cmdMap[config.App.Runtime],
+		Env:          config.Env,
+		TAPInterface: tapIface,
+		MACAddress:   macAddr,
 	}
 
 	if detachMode {

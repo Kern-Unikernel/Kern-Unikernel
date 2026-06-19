@@ -158,7 +158,7 @@ func generateDockerfile(runtime, entry, projectPath string) error {
 			"COPY --from=build /lib64/ld-linux-x86-64.so.2 /lib64/ld-linux-x86-64.so.2\n" +
 			"COPY --from=build /src /src\n"
 	case "go":
-		content = "FROM golang:1.22-bookworm AS build\n" +
+		content = "FROM docker.io/library/golang:1.22-bookworm AS build\n" +
 			"WORKDIR /src\n" +
 			"COPY . .\n" +
 			"RUN CGO_ENABLED=1 go build \\\n" +
