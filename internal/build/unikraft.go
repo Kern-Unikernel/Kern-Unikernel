@@ -23,6 +23,24 @@ func downloadKernel(runtime, destDir string) (string, error) {
 		return "", fmt.Errorf("runtime not supported: %q", runtime)
 	}
 
+	// Comprobar caché
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		cacheDir = os.TempDir()
+	}
+	kernelCacheDir := filepath.Join(cacheDir, "kern", "kernels", runtime)
+	cachedKernel := filepath.Join(kernelCacheDir, "kernel")
+
+	if _, err := os.Stat(cachedKernel); err == nil {
+		fmt.Printf("→ Using cached kernel for %s\n", runtime)
+		destPath := filepath.Join(destDir, "kernel")
+		if err := copyFile(cachedKernel, destPath); err != nil {
+			return "", err
+		}
+		return destPath, nil
+	}
+
+	// Descargar
 	ociDir := filepath.Join(destDir, "oci-"+runtime)
 	if err := os.MkdirAll(ociDir, 0755); err != nil {
 		return "", err
@@ -30,7 +48,6 @@ func downloadKernel(runtime, destDir string) (string, error) {
 
 	fmt.Printf("→ Downloading Unikraft kernel for %s...\n", runtime)
 
-	// Descargar imagen OCI con skopeo
 	cmd := exec.Command("skopeo", "copy",
 		"--override-arch", "x86_64",
 		"--override-os", "qemu",
@@ -43,14 +60,18 @@ func downloadKernel(runtime, destDir string) (string, error) {
 		return "", fmt.Errorf("error downloading kernel: %w", err)
 	}
 
-	// Extraer el kernel del blob OCI
 	kernelPath, err := extractKernelFromOCI(ociDir, destDir)
 	if err != nil {
 		return "", fmt.Errorf("error extracting kernel: %w", err)
 	}
 
-	// Limpiar directorio OCI
 	os.RemoveAll(ociDir)
+
+	// Guardar en caché
+	if err := os.MkdirAll(kernelCacheDir, 0755); err == nil {
+		copyFile(kernelPath, cachedKernel)
+		fmt.Printf("✓ Kernel cached at %s\n", kernelCacheDir)
+	}
 
 	return kernelPath, nil
 }
