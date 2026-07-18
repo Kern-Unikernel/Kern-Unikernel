@@ -85,6 +85,14 @@ func Up(composePath string, detach bool) error {
 		time.Sleep(1 * time.Second)
 		fmt.Println("✓ Network ready")
 		fmt.Println()
+		hostsEntries := "# kern-compose-start\n"
+		for _, name := range ordered {
+			svc := networks[name]
+			hostsEntries += fmt.Sprintf("%s %s\n", svc.IP, name)
+		}
+		hostsEntries += "# kern-compose-end"
+		exec.Command("sudo", "sh", "-c",
+			fmt.Sprintf("printf '\\n%s\\n' >> /etc/hosts", hostsEntries)).Run()
 
 		fmt.Println("Service IPs:")
 		for _, name := range ordered {
@@ -235,6 +243,8 @@ func Down(composePath string) error {
 		}
 		network.TeardownBridge()
 		fmt.Println("✓ Network removed")
+		exec.Command("sudo", "sh", "-c",
+			"sed -i '/# kern-compose-start/,/# kern-compose-end/d' /etc/hosts").Run()
 	}
 
 	return nil
