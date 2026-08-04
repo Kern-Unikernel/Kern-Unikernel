@@ -3,6 +3,7 @@ package compose
 import (
 	"fmt"
 	"math/rand"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -189,6 +190,39 @@ func Up(composePath string, detach bool) error {
 		}
 
 		time.Sleep(2 * time.Second)
+
+		// Esperar a que el servicio esté listo
+		fmt.Printf("  Waiting for %s to be ready...\n", name)
+		ready := false
+		for i := 0; i < 30; i++ {
+			time.Sleep(1 * time.Second)
+			if len(config.Network.Ports) > 0 {
+				port := config.Network.Ports[0]
+				var url string
+				if networks != nil {
+					svc := networks[name]
+					url = fmt.Sprintf("http://%s:%d", svc.IP, port)
+				} else {
+					url = fmt.Sprintf("http://localhost:%d", port)
+				}
+				resp, err := http.Get(url)
+				if err == nil {
+					resp.Body.Close()
+					ready = true
+					break
+				}
+			} else {
+				// Sin puerto, asumir listo después de 3 segundos
+				ready = true
+				break
+			}
+		}
+
+		if ready {
+			fmt.Printf("✓ %s is ready\n", name)
+		} else {
+			fmt.Printf("warning: %s did not respond within 30 seconds\n", name)
+		}
 
 		// Guardar instancia
 		instance := &instances.Instance{
