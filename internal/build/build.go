@@ -146,16 +146,22 @@ func generateDockerfile(runtime, entry, projectPath string) error {
 			"COPY --from=build /usr/src/node_modules /usr/src/node_modules\n" +
 			"COPY --from=build /usr/src/" + entry + " /usr/src/" + entry + "\n"
 	case "python":
-		content = "FROM python:3.12-slim AS build\n" +
+		content = "FROM docker.io/library/python:3.12-slim AS build\n" +
 			"WORKDIR /src\n" +
 			"COPY requirements.txt* ./\n" +
 			"RUN if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\n" +
 			"COPY . .\n\n" +
 			"FROM scratch\n" +
-			"COPY --from=build /usr/local/lib/python3.12 /usr/local/lib/python3.12\n" +
+			"COPY --from=build /usr/local/lib/libpython3.12.so.1.0 /usr/local/lib/libpython3.12.so.1.0\n" +
 			"COPY --from=build /usr/local/bin/python3.12 /usr/local/bin/python3.12\n" +
 			"COPY --from=build /lib/x86_64-linux-gnu/libc.so.6 /lib/x86_64-linux-gnu/libc.so.6\n" +
+			"COPY --from=build /lib/x86_64-linux-gnu/libz.so.1 /lib/x86_64-linux-gnu/libz.so.1\n" +
 			"COPY --from=build /lib64/ld-linux-x86-64.so.2 /lib64/ld-linux-x86-64.so.2\n" +
+			"COPY --from=build /usr/local/lib/python3.12/http /usr/local/lib/python3.12/http\n" +
+			"COPY --from=build /usr/local/lib/python3.12/urllib /usr/local/lib/python3.12/urllib\n" +
+			"COPY --from=build /usr/local/lib/python3.12/email /usr/local/lib/python3.12/email\n" +
+			"COPY --from=build /usr/local/lib/python3.12/encodings /usr/local/lib/python3.12/encodings\n" +
+			"COPY --from=build /usr/local/lib/python3.12/*.py /usr/local/lib/python3.12/\n" +
 			"COPY --from=build /src /src\n"
 	case "go":
 		content = "FROM docker.io/library/golang:1.22-bookworm AS build\n" +

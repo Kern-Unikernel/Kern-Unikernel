@@ -122,6 +122,11 @@ func runDirect(config *kernfile.KernfileConfig, kernelPath, initrdPath, projectP
 		qemuCmd := exec.Command("qemu-system-x86_64", args...)
 		qemuCmd.Dir = projectPath
 		if err := qemuCmd.Start(); err != nil {
+			sleepTime := 2 * time.Second
+			if config.App.Runtime == "python" {
+				sleepTime = 8 * time.Second
+			}
+			time.Sleep(sleepTime)
 			return fmt.Errorf("error starting in background: %w", err)
 		}
 

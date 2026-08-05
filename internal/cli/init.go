@@ -81,6 +81,11 @@ NODE_ENV = "production"
 	}
 
 	fmt.Println("✓ Kernfile created — review and adjust the fields as needed")
+	dockerignore := ".unikraft\n.unikernel\nDockerfile\nKraftfile\n*.sig\n*.sbom\n"
+	dockerignorePath := filepath.Join(filepath.Dir(kernfilePath), ".dockerignore")
+	if _, err := os.Stat(dockerignorePath); err != nil {
+		os.WriteFile(dockerignorePath, []byte(dockerignore), 0644)
+	}
 	return nil
 }
 
