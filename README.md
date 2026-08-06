@@ -164,14 +164,41 @@ services:
 ```
 
 ```bash
-kern compose up -d      # start all services
-kern compose ps         # list services
-kern compose logs       # show logs
+kern compose up -d       # start all services
+kern compose ps          # list services
+kern compose logs        # show logs
 kern compose restart api # restart a service
-kern compose down       # stop and remove all services
+kern compose down        # stop and remove all services
 ```
 
 Services communicate with each other by name (`http://worker:4000`) via a virtual bridge network with automatic DHCP and DNS resolution.
+
+## GitHub Action
+
+Build and push unikernels automatically in CI/CD:
+
+```yaml
+name: Build unikernel
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build unikernel
+        uses: Kern-Unikernel/action@v1
+        with:
+          push: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          registry-user: ${{ github.actor }}
+          registry-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+See [Kern-Unikernel/action](https://github.com/Kern-Unikernel/action) for full documentation.
 
 ## The Kernfile
 
@@ -281,6 +308,7 @@ kern/
 - [x] kern push / pull (ghcr.io)
 - [x] kern secret set / get (AES-256-GCM)
 - [x] kern compose (multi-service with bridge networking)
+- [x] GitHub Action (Kern-Unikernel/action@v1)
 - [x] Node.js 21 runtime
 - [x] Go 1.22 runtime
 - [x] Rust runtime
