@@ -1,3 +1,4 @@
+
 # kern
 <img width="80%" alt="image" src="https://github.com/user-attachments/assets/9aaba24d-f8ad-4505-aed8-64921f6ad8ae" />
 
@@ -17,12 +18,19 @@ kern eliminates the operating system from the application lifecycle. Instead of 
 ## Requirements
 
 - Linux with KVM support (`kvm-ok` to verify)
-- [kraft CLI](https://unikraft.org/docs/cli) installed
-- Docker (used only at build time to generate the rootfs)
-- Go 1.22+
+- `skopeo` — to download Unikraft kernels
+- `buildah` — to build the rootfs (no Docker daemon needed)
+- `qemu-system-x86_64` — to run unikernels
 - `objcopy` (included in `binutils`)
+- Go 1.22+
 
 ## Installation
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Kern-Unikernel/Kern-Unikernel/main/setup-wsl.sh)
+```
+
+Or manually:
 
 ```bash
 git clone https://github.com/Kern-Unikernel/Kern-Unikernel.git
@@ -41,7 +49,7 @@ cd my-app
 kern init
 ```
 
-Detects the runtime automatically (Node.js, Go, Rust) and creates a `Kernfile`.
+Detects the runtime automatically (Node.js, Go, Rust, Python) and creates a `Kernfile`.
 
 ### Build the unikernel
 
@@ -49,13 +57,15 @@ Detects the runtime automatically (Node.js, Go, Rust) and creates a `Kernfile`.
 kern build
 ```
 
-Installs dependencies, generates a Kraftfile, compiles the unikernel, packages it as a `.uki` image, signs it with ed25519 and generates a SBOM.
+Downloads the Unikraft kernel via skopeo, builds the rootfs with buildah, generates the initramfs, packages it as a `.uki` image, signs it with ed25519 and generates a SBOM. No Docker daemon or kraft required.
 
 ### Run locally
 
 ```bash
 kern run          # foreground
 kern run -d       # background (detached)
+kern run -d --port 8080:8080   # override port
+kern run -d --env NODE_ENV=dev # set environment variable
 ```
 
 ### Inspect the image
@@ -64,7 +74,16 @@ kern run -d       # background (detached)
 kern inspect
 ```
 
-Shows image size, runtime info, security status (signature, SBOM) and components.
+Shows image size, UKI sections, dependencies, runtime info and security status.
+
+### Benchmark
+
+```bash
+kern run -d
+kern bench
+```
+
+Shows response time, requests/sec and avg latency.
 
 ### Manage running unikernels
 
@@ -83,7 +102,15 @@ kern metrics my-app       # show current metrics
 kern metrics my-app -w    # watch metrics in real-time
 ```
 
-Shows status and vCPUs via QMP (QEMU Machine Protocol) — without needing shell access inside the unikernel.
+Shows status, memory (via QMP balloon device) and vCPUs — without needing shell access inside the unikernel.
+
+### Verify image integrity
+
+```bash
+kern verify
+```
+
+Verifies the ed25519 signature of the built image.
 
 ### Debug
 
@@ -114,6 +141,38 @@ Reference secrets in the Kernfile:
 DATABASE_URL = "secret:db_url"
 ```
 
+## Multi-service applications
+
+kern supports multi-service applications with automatic networking between services.
+
+```yaml
+# kern-compose.yml
+version: "1.0"
+
+services:
+  api:
+    build: ./api
+    ports:
+      - "3000:3000"
+
+  worker:
+    build: ./worker
+    ports:
+      - "4000:4000"
+    depends_on:
+      - api
+```
+
+```bash
+kern compose up -d      # start all services
+kern compose ps         # list services
+kern compose logs       # show logs
+kern compose restart api # restart a service
+kern compose down       # stop and remove all services
+```
+
+Services communicate with each other by name (`http://worker:4000`) via a virtual bridge network with automatic DHCP and DNS resolution.
+
 ## The Kernfile
 
 ```toml
@@ -122,7 +181,7 @@ kernfile = "1.0"
 [app]
 name    = "my-api"
 version = "1.0.0"
-runtime = "node"      # node | go | rust
+runtime = "node"      # node | go | rust | python
 entry   = "index.js"
 
 [network]
@@ -141,27 +200,50 @@ DATABASE_URL = "secret:db_url"
 
 | Runtime | Min memory | Boot time | Status |
 |---|---|---|---|
-| Go 1.22 | 64Mi | ~8ms | ✅ Stable |
+| Go 1.22 | 128Mi | ~8ms | ✅ Stable |
 | Node.js 21 | 512Mi | ~10ms | ✅ Stable |
-| Rust (latest) | 64Mi | ~8ms | ✅ Stable |
+| Rust (latest) | 128Mi | ~8ms | ✅ Stable |
+| Python 3.12 | 384Mi | ~11ms | ✅ Stable |
 | Bun 1.1 | 256Mi | ~10ms | 🚧 Coming soon |
-| Python 3.12 | 384Mi | ~11ms | 🚧 Coming soon |
 
 ## Security
 
 Every `kern build` automatically:
+- Downloads the Unikraft kernel from the official OCI registry
+- Builds the rootfs with buildah (no Docker daemon)
 - Packages the unikernel as a `.uki` (Unified Kernel Image)
 - Signs the image with ed25519 — stored in `.unikernel/image.uki.sig`
 - Generates a SBOM (SPDX-2.3) — stored in `.unikernel/image.sbom`
 - Keys are stored in `~/.config/kern/keys/`
 
+Verify any image before running:
+
+```bash
+kern verify
+```
+
 ## Observability
 
 kern provides real-time observability without shell access inside the unikernel:
 
-- `kern metrics` — vCPUs and status via QMP
-- `kern logs` — VM logs in real-time
+- `kern metrics` — memory (via QMP balloon), vCPUs and status
+- `kern logs` — VM serial logs in real-time
 - `kern debug` — full process info, VMM logs and QMP status
+- `kern bench` — response time, throughput and latency
+
+## Build pipeline
+
+```
+kern build
+  → skopeo       — downloads Unikraft kernel from unikraft.org OCI registry
+  → buildah      — builds app rootfs from Dockerfile (no Docker daemon)
+  → cpio         — generates initramfs
+  → objcopy      — combines kernel + initramfs + cmdline into .uki binary
+  → ed25519      — signs the image
+  → SPDX-2.3     — generates SBOM
+```
+
+Kernels are cached in `~/.cache/kern/kernels/` after the first build.
 
 ## Project structure
 
@@ -171,12 +253,14 @@ kern/
 ├── internal/
 │   ├── build/            ← Build engine + .uki generation
 │   ├── cli/              ← CLI commands
+│   ├── compose/          ← Multi-service compose
 │   ├── instances/        ← Instance state management
 │   ├── kernfile/         ← Kernfile parser
+│   ├── network/          ← Bridge/TAP networking for compose
 │   ├── packager/         ← Image signing and SBOM
 │   ├── qmp/              ← QEMU Machine Protocol client
 │   ├── registry/         ← OCI registry client (ghcr.io)
-│   ├── runner/           ← Hypervisor runner
+│   ├── runner/           ← Direct QEMU runner
 │   └── secrets/          ← Secret store (AES-256-GCM)
 └── profiles/             ← Runtime profiles (TOML)
 ```
@@ -184,15 +268,23 @@ kern/
 ## Status
 
 - [x] kern init
-- [x] kern build (with .uki generation, ed25519 signing and SBOM)
+- [x] kern build (kraft-free: skopeo + buildah + cpio)
 - [x] kern run / kern run -d
+- [x] kern run --port / --env
 - [x] kern ps / stop / rm
 - [x] kern logs / kern logs -f
-- [x] kern metrics (via QMP)
+- [x] kern metrics (memory via QMP, vCPUs, status)
 - [x] kern debug
-- [x] kern inspect
+- [x] kern inspect (UKI sections, dependencies, security)
+- [x] kern verify (ed25519 signature)
+- [x] kern bench (response time, throughput, latency)
 - [x] kern push / pull (ghcr.io)
-- [x] kern secret set / get
-- [ ] Python and Bun runtimes
+- [x] kern secret set / get (AES-256-GCM)
+- [x] kern compose (multi-service with bridge networking)
+- [x] Node.js 21 runtime
+- [x] Go 1.22 runtime
+- [x] Rust runtime
+- [x] Python 3.12 runtime
+- [ ] Bun 1.1 runtime
 - [ ] macOS support (HVF)
-- [ ] Multi-service support
+- [ ] Java 17 runtime
