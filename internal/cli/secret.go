@@ -35,8 +35,18 @@ var secretGetCmd = &cobra.Command{
 	},
 }
 
+var secretDeleteCmd = &cobra.Command{
+	Use:   "delete [name]",
+	Short: "Delete a secret",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return secrets.DeleteSecret(args[0])
+	},
+}
+
 func init() {
 	secretCmd.AddCommand(secretSetCmd)
 	secretCmd.AddCommand(secretGetCmd)
+	secretCmd.AddCommand(secretDeleteCmd)
 	rootCmd.AddCommand(secretCmd)
 }

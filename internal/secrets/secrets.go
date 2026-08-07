@@ -105,6 +105,26 @@ func GetSecret(name string) (string, error) {
 	return string(decrypted), nil
 }
 
+func DeleteSecret(name string) error {
+	dir, err := secretsDir()
+	if err != nil {
+		return fmt.Errorf("error accessing secrets directory: %w", err)
+	}
+
+	secretPath := filepath.Join(dir, name+".enc")
+
+	if _, err := os.Stat(secretPath); os.IsNotExist(err) {
+		return fmt.Errorf("secret %q not found", name)
+	}
+
+	if err := os.Remove(secretPath); err != nil {
+		return fmt.Errorf("error deleting secret: %w", err)
+	}
+
+	fmt.Printf("✓ Secret %q deleted\n", name)
+	return nil
+}
+
 func ResolveSecrets(envMap map[string]string) (map[string]string, error) {
 	resolved := make(map[string]string)
 	for k, v := range envMap {
