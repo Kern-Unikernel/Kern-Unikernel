@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Kern-Unikernel/Kern-Unikernel/internal/common"
 	"github.com/spf13/cobra"
@@ -14,16 +15,26 @@ var initCmd = &cobra.Command{
 	Short: "Initialize a project by creating a Kernfile",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		projectPath, err := os.Getwd()
+		choice := ""
 		if err != nil {
 			return fmt.Errorf("could not get current directory: %w", err)
 		}
 
 		runtime := detectRuntime(projectPath)
-		fmt.Println(runtime)
+
 		if runtime == "" {
 			return fmt.Errorf("Could not find any compatible runtime (%s)...", common.GetStringSupportedRuntimes())
 		}
 		fmt.Printf("Runtime detected: %s\n", runtime)
+
+		fmt.Printf("Initialize kernfile in \"%s\" ? [Y/n]:\n", projectPath)
+		fmt.Scanln(&choice)
+		choice = strings.ToLower(choice)
+
+		if choice != "y" && choice != "yes" {
+			fmt.Print("Exiting project initalizing...\n")
+			return nil
+		}
 
 		return createKernfile(projectPath, runtime)
 	},
