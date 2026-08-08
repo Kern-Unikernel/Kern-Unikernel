@@ -26,12 +26,17 @@ kern eliminates the operating system from the application lifecycle. Instead of 
 
 ## Installation
 
+**Linux:**
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Kern-Unikernel/Kern-Unikernel/main/install.sh)
+```
+
+**Windows (WSL2):**
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Kern-Unikernel/Kern-Unikernel/main/setup-wsl.sh)
 ```
 
 Or manually:
-
 ```bash
 git clone https://github.com/Kern-Unikernel/Kern-Unikernel.git
 cd Kern-Unikernel
