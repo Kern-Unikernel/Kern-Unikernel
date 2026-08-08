@@ -11,7 +11,7 @@ kern eliminates the operating system from the application lifecycle. Instead of 
 | | Docker | kern |
 |---|---|---|
 | Boot time | 800ms - 2s | 5 - 12ms |
-| Image size | 150MB - 800MB | 15 - 45MB |
+| Image size | 150MB - 800MB | 20 - 110MB |
 | Memory usage | 50 - 150MB | 8 - 40MB |
 | Attack surface | ~400 syscalls | ~50 syscalls |
 
