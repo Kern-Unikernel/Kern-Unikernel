@@ -59,6 +59,14 @@ func Build(config *kernfile.KernfileConfig, projectPath string) error {
 		os.RemoveAll(rootfsDir)
 	}
 
+	ukiPath := filepath.Join(projectPath, ".unikernel", "image.uki")
+	prevPath := filepath.Join(projectPath, ".unikernel", "image.uki.prev")
+	if _, err := os.Stat(ukiPath); err == nil {
+		if data, err := os.ReadFile(ukiPath); err == nil {
+			os.WriteFile(prevPath, data, 0755)
+		}
+	}
+
 	fmt.Println("→ Generating .uki image...")
 	if err := generateUKI(config, projectPath); err != nil {
 		fmt.Printf("warning: could not generate .uki: %v\n", err)
