@@ -87,6 +87,10 @@ func Build(config *kernfile.KernfileConfig, projectPath string) error {
 	}
 
 	unikernelDir := filepath.Join(projectPath, ".unikernel")
+	if err := os.MkdirAll(unikernelDir, 0755); err != nil {
+		return fmt.Errorf("error creating .unikernel directory: %w", err)
+	}
+
 	imagePath := filepath.Join(unikernelDir, "image.uki")
 
 	if _, err := os.Stat(imagePath); err == nil {

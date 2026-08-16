@@ -63,10 +63,18 @@ func detectRuntime(path string) string {
 
 func createKernfile(path, runtime string) error {
 	kernfilePath := path + "/Kernfile"
-
 	if _, err := os.Stat(kernfilePath); err == nil {
 		return fmt.Errorf("a Kernfile already exists in this directory")
 	}
+
+	entryMap := map[string]string{
+		"node":   "index.js",
+		"go":     "main.go",
+		"rust":   "main.rs",
+		"python": "main.py",
+		"bun":    "index.ts",
+	}
+	entry := entryMap[runtime]
 
 	content := fmt.Sprintf(`kernfile = "1.0"
 
@@ -74,7 +82,7 @@ func createKernfile(path, runtime string) error {
 name    = "%s"
 version = "0.1.0"
 runtime = "%s"
-entry   = "server.ts"
+entry   = "%s"
 
 [network]
 ports = [3000]
@@ -85,12 +93,11 @@ cpu    = 1
 
 [env]
 NODE_ENV = "production"
-`, filepath.Base(path), runtime)
+`, filepath.Base(path), runtime, entry)
 
 	if err := os.WriteFile(kernfilePath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("error creating Kernfile: %w", err)
 	}
-
 	fmt.Println("✓ Kernfile created — review and adjust the fields as needed")
 	dockerignore := ".unikraft\n.unikernel\nDockerfile\nKraftfile\n*.sig\n*.sbom\n"
 	dockerignorePath := filepath.Join(filepath.Dir(kernfilePath), ".dockerignore")
