@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"sort"
+	"syscall"
 	"time"
 
 	"github.com/Kern-Unikernel/Kern-Unikernel/internal/instances"
@@ -251,6 +253,31 @@ func Down(composePath string) error {
 		return err
 	}
 
+	ordered, _ := sortServices(compose.Services)
+	networks := network.BuildServiceNetworks(ordered)
+
+	cleanup := func() {
+		if len(compose.Services) > 1 {
+			fmt.Println("→ Tearing down network...")
+			for _, svc := range networks {
+				network.DeleteTAP(svc.TAP)
+			}
+			network.TeardownBridge()
+			exec.Command("sudo", "sh", "-c",
+				"sed -i '/# kern-compose-start/,/# kern-compose-end/d' /etc/hosts").Run()
+			fmt.Println("✓ Network removed")
+		}
+	}
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sig
+		fmt.Println("\n→ Interrupted — cleaning up...")
+		cleanup()
+		os.Exit(0)
+	}()
+
 	for name := range compose.Services {
 		fmt.Printf("Stopping service: %s\n", name)
 
@@ -263,24 +290,9 @@ func Down(composePath string) error {
 		rmCmd.Stdout = os.Stdout
 		rmCmd.Stderr = os.Stderr
 		rmCmd.Run()
-
-		fmt.Printf("✓ %s stopped\n", name)
 	}
 
-	// Limpiar networking
-	if len(compose.Services) > 1 {
-		fmt.Println("→ Tearing down network...")
-		ordered, _ := sortServices(compose.Services)
-		networks := network.BuildServiceNetworks(ordered)
-		for _, svc := range networks {
-			network.DeleteTAP(svc.TAP)
-		}
-		network.TeardownBridge()
-		fmt.Println("✓ Network removed")
-		exec.Command("sudo", "sh", "-c",
-			"sed -i '/# kern-compose-start/,/# kern-compose-end/d' /etc/hosts").Run()
-	}
-
+	cleanup()
 	return nil
 }
 
