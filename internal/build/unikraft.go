@@ -3,6 +3,7 @@ package build
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -96,7 +97,7 @@ func extractKernelFromOCI(ociDir, destDir string) (string, error) {
 			continue
 		}
 
-		cmd := exec.Command("tar", "xzf", blobPath, "-C", extractDir)
+		cmd := exec.Command("tar", "xzf", blobPath, "-C", extractDir, "--no-same-owner", "--no-same-permissions")
 		if err := cmd.Run(); err != nil {
 			os.RemoveAll(extractDir)
 			continue
@@ -268,10 +269,23 @@ func extractOCILayer(tarPath, rootfsDir string) error {
 	layerPath := "blobs/sha256/" + layerDigest
 
 	// Extraer la capa
-	extractCmd := exec.Command("sh", "-c",
-		fmt.Sprintf("tar xOf %s %s | tar xz -C %s", tarPath, layerPath, rootfsDir))
-	extractCmd.Stderr = os.Stderr
+	extractCmd := exec.Command("tar", "xOf", tarPath, layerPath)
+	untarCmd := exec.Command("tar", "-xz", "-C", rootfsDir, "--no-same-owner", "--no-same-permissions")
+	layer, err := extractCmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("error opening OCI layer: %w", err)
+	}
+	untarCmd.Stdin = layer
+	untarCmd.Stderr = os.Stderr
+	if err := untarCmd.Start(); err != nil {
+		return fmt.Errorf("error starting layer extraction: %w", err)
+	}
 	if err := extractCmd.Run(); err != nil {
+		_ = untarCmd.Process.Kill()
+		_ = untarCmd.Wait()
+		return fmt.Errorf("error reading OCI layer: %w", err)
+	}
+	if err := untarCmd.Wait(); err != nil {
 		return fmt.Errorf("error extracting layer: %w", err)
 	}
 
@@ -281,12 +295,31 @@ func extractOCILayer(tarPath, rootfsDir string) error {
 func generateInitramfs(rootfsDir, outputPath string) error {
 	fmt.Println("→ Generating initramfs CPIO...")
 
-	cpioCmd := exec.Command("sh", "-c",
-		fmt.Sprintf("cd %s && find . | cpio -o -H newc > %s", rootfsDir, outputPath))
-	cpioCmd.Stdout = os.Stdout
-	cpioCmd.Stderr = os.Stderr
+	output, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("error creating initramfs: %w", err)
+	}
+	defer output.Close()
 
-	if err := cpioCmd.Run(); err != nil {
+	findCmd := exec.Command("find", ".")
+	findCmd.Dir = rootfsDir
+	cpioCmd := exec.Command("cpio", "-o", "-H", "newc")
+	files, err := findCmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("error listing rootfs: %w", err)
+	}
+	cpioCmd.Stdin = files
+	cpioCmd.Stdout = output
+	cpioCmd.Stderr = os.Stderr
+	if err := cpioCmd.Start(); err != nil {
+		return fmt.Errorf("error starting cpio: %w", err)
+	}
+	if err := findCmd.Run(); err != nil {
+		_ = cpioCmd.Process.Kill()
+		_ = cpioCmd.Wait()
+		return fmt.Errorf("error listing rootfs: %w", err)
+	}
+	if err := cpioCmd.Wait(); err != nil {
 		return fmt.Errorf("error generating initramfs: %w", err)
 	}
 
@@ -294,9 +327,22 @@ func generateInitramfs(rootfsDir, outputPath string) error {
 }
 
 func copyFile(src, dst string) error {
-	data, err := os.ReadFile(src)
+	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, data, 0755)
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(dst, 0755)
 }

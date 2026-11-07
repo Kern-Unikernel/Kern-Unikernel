@@ -69,10 +69,9 @@ func Build(config *kernfile.KernfileConfig, projectPath string) error {
 
 	fmt.Println("→ Generating .uki image...")
 	if err := generateUKI(config, projectPath); err != nil {
-		fmt.Printf("warning: could not generate .uki: %v\n", err)
-	} else {
-		fmt.Println("✓ .uki image generated")
+		return fmt.Errorf("error generating .uki: %w", err)
 	}
+	fmt.Println("✓ .uki image generated")
 
 	fmt.Println("→ Signing image and generating SBOM...")
 	configDir, err := os.UserHomeDir()
