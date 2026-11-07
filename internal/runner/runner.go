@@ -31,16 +31,17 @@ func DetectHypervisor() HypervisorType {
 }
 
 type RunConfig struct {
-	KernelPath   string
-	InitrdPath   string
-	MemoryMiB    int
-	CPUs         int
-	Ports        []PortMapping
-	Hypervisor   HypervisorType
-	AppCmd       string
-	Env          map[string]string
-	TAPInterface string
-	MACAddress   string
+	KernelPath    string
+	InitrdPath    string
+	MemoryMiB     int
+	CPUs          int
+	Ports         []PortMapping
+	Hypervisor    HypervisorType
+	AppCmd        string
+	Env           map[string]string
+	TAPInterface  string
+	MACAddress    string
+	SerialLogPath string
 }
 
 type PortMapping struct {
@@ -118,6 +119,10 @@ func BuildQEMUArgs(cfg RunConfig) []string {
 	}
 	envVars := strings.Join(envList, ", ")
 	appendStr := fmt.Sprintf(`vfs.fstab=[ "initrd0:/:extract:::" ] env.vars=[ %s ] -- %s`, envVars, cfg.AppCmd)
+	machine := "pc"
+	if cfg.Hypervisor == HypervisorHVF {
+		machine = "q35"
+	}
 
 	// Crear directorio para el socket
 	socketDir := fmt.Sprintf("/tmp/kern-%d-%d", os.Getpid(), time.Now().UnixNano())
@@ -131,9 +136,8 @@ func BuildQEMUArgs(cfg RunConfig) []string {
 		"-append", appendStr,
 		"-m", fmt.Sprintf("size=%dM", cfg.MemoryMiB),
 		"-smp", fmt.Sprintf("cpus=%d,threads=1,sockets=1", cfg.CPUs),
-		"-cpu", "host,+x2apic,-pmu",
-		"-machine", "pc,accel=kvm",
-		"-nographic",
+		"-machine", machine,
+		"-monitor", "none",
 		"-no-reboot",
 		"-device", "pvpanic",
 		"-display", "none",
@@ -142,15 +146,19 @@ func BuildQEMUArgs(cfg RunConfig) []string {
 		"-rtc", "base=utc",
 		"-qmp", fmt.Sprintf("unix:%s,server,nowait", qmpSocket),
 		"-pidfile", pidFile,
-		"-serial", fmt.Sprintf("file:%s/vm.log", socketDir),
+	}
+	if cfg.SerialLogPath == "" {
+		args = append(args, "-serial", "stdio")
+	} else {
+		args = append(args, "-serial", "file:"+cfg.SerialLogPath)
 	}
 
 	if cfg.Hypervisor == HypervisorKVM {
-		args = append(args, "-enable-kvm")
+		args = append(args, "-accel", "kvm", "-cpu", "host,+x2apic,-pmu")
 	} else if cfg.Hypervisor == HypervisorHVF {
-		args = append(args, "-accel", "hvf")
-		args = append(args, "-machine", "q35")
-		args = append(args, "-cpu", "host")
+		args = append(args, "-accel", "hvf", "-cpu", "host")
+	} else {
+		args = append(args, "-accel", "tcg", "-cpu", "max")
 	}
 	// Networking — TAP para compose o user para run normal
 	if cfg.TAPInterface != "" {

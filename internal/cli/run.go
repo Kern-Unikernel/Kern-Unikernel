@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -118,6 +119,11 @@ func runDirect(config *kernfile.KernfileConfig, kernelPath, initrdPath, projectP
 	}
 
 	if detachMode {
+		logDir := filepath.Join(projectPath, ".unikernel", "logs")
+		if err := os.MkdirAll(logDir, 0755); err != nil {
+			return fmt.Errorf("could not create serial log directory: %w", err)
+		}
+		cfg.SerialLogPath = filepath.Join(logDir, config.App.Name+".log")
 		args := runner.BuildQEMUArgs(cfg)
 		qemuCmd := exec.Command("qemu-system-x86_64", args...)
 		qemuCmd.Dir = projectPath
@@ -141,6 +147,7 @@ func runDirect(config *kernfile.KernfileConfig, kernelPath, initrdPath, projectP
 			MemoryMiB: memoryMap[config.App.Runtime],
 			CreatedAt: time.Now(),
 			Status:    "running",
+			LogPath:   cfg.SerialLogPath,
 		}
 		if err := instances.Save(instance); err != nil {
 			fmt.Printf("warning: could not save instance state: %v\n", err)

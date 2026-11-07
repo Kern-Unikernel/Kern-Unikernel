@@ -1,14 +1,13 @@
 package secrets
 
 import (
-	"os"
+	"runtime"
 	"testing"
 )
 
 func TestSetAndGetSecret(t *testing.T) {
 	// Usar directorio temporal para los tests
-	home := t.TempDir()
-	os.Setenv("HOME", home)
+	setTestHome(t)
 
 	if err := SetSecret("db_url", "postgres://user:pass@localhost/db"); err != nil {
 		t.Fatalf("error setting secret: %v", err)
@@ -25,8 +24,7 @@ func TestSetAndGetSecret(t *testing.T) {
 }
 
 func TestGetNonExistentSecret(t *testing.T) {
-	home := t.TempDir()
-	os.Setenv("HOME", home)
+	setTestHome(t)
 
 	_, err := GetSecret("nonexistent")
 	if err == nil {
@@ -35,8 +33,7 @@ func TestGetNonExistentSecret(t *testing.T) {
 }
 
 func TestSetSecretOverwrite(t *testing.T) {
-	home := t.TempDir()
-	os.Setenv("HOME", home)
+	setTestHome(t)
 
 	if err := SetSecret("key", "value1"); err != nil {
 		t.Fatal(err)
@@ -55,8 +52,7 @@ func TestSetSecretOverwrite(t *testing.T) {
 }
 
 func TestResolveSecrets(t *testing.T) {
-	home := t.TempDir()
-	os.Setenv("HOME", home)
+	setTestHome(t)
 
 	if err := SetSecret("db_url", "postgres://localhost/db"); err != nil {
 		t.Fatal(err)
@@ -80,9 +76,17 @@ func TestResolveSecrets(t *testing.T) {
 	}
 }
 
-func TestResolveSecretsNonExistent(t *testing.T) {
+func setTestHome(t *testing.T) {
+	t.Helper()
 	home := t.TempDir()
-	os.Setenv("HOME", home)
+	t.Setenv("HOME", home)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", home)
+	}
+}
+
+func TestResolveSecretsNonExistent(t *testing.T) {
+	setTestHome(t)
 
 	envMap := map[string]string{
 		"DATABASE_URL": "secret:nonexistent",

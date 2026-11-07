@@ -1,14 +1,13 @@
 package instances
 
 import (
-	"os"
+	"runtime"
 	"testing"
 	"time"
 )
 
 func TestSaveAndList(t *testing.T) {
-	home := t.TempDir()
-	os.Setenv("HOME", home)
+	setTestHome(t)
 
 	instance := &Instance{
 		ID:        "test123",
@@ -40,8 +39,7 @@ func TestSaveAndList(t *testing.T) {
 }
 
 func TestGetByName(t *testing.T) {
-	home := t.TempDir()
-	os.Setenv("HOME", home)
+	setTestHome(t)
 
 	instance := &Instance{
 		ID:        "abc123",
@@ -69,8 +67,7 @@ func TestGetByName(t *testing.T) {
 }
 
 func TestGetByNameNotFound(t *testing.T) {
-	home := t.TempDir()
-	os.Setenv("HOME", home)
+	setTestHome(t)
 
 	_, err := GetByName("nonexistent")
 	if err == nil {
@@ -79,8 +76,7 @@ func TestGetByNameNotFound(t *testing.T) {
 }
 
 func TestRemove(t *testing.T) {
-	home := t.TempDir()
-	os.Setenv("HOME", home)
+	setTestHome(t)
 
 	instance := &Instance{
 		ID:        "del123",
@@ -112,13 +108,22 @@ func TestRemove(t *testing.T) {
 }
 
 func TestIsRunning(t *testing.T) {
-	// PID 1 siempre existe en Linux
-	if !isRunning(1) {
-		t.Error("PID 1 should always be running")
+	// The implementation checks /proc, which is available on Linux only.
+	if runtime.GOOS == "linux" && !isRunning(1) {
+		t.Error("PID 1 should always be running on Linux")
 	}
 
 	// PID negativo nunca existe
 	if isRunning(-1) {
 		t.Error("negative PID should not be running")
+	}
+}
+
+func setTestHome(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", home)
 	}
 }

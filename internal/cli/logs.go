@@ -26,9 +26,12 @@ var logsCmd = &cobra.Command{
 			return fmt.Errorf("instance %q not found", name)
 		}
 
-		logPath, err := findVMLog(instance.PID)
-		if err != nil {
-			return fmt.Errorf("could not find logs: %w", err)
+		logPath := instance.LogPath
+		if logPath == "" {
+			logPath, err = findVMLog(instance.PID)
+			if err != nil {
+				return fmt.Errorf("could not find logs: %w", err)
+			}
 		}
 
 		if followLogs {

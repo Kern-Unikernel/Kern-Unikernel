@@ -17,6 +17,7 @@ type Instance struct {
 	MemoryMiB int       `json:"memory_mib"`
 	CreatedAt time.Time `json:"created_at"`
 	Status    string    `json:"status"`
+	LogPath   string    `json:"log_path,omitempty"`
 }
 
 func instancesDir() (string, error) {

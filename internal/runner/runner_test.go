@@ -46,14 +46,31 @@ func TestBuildQEMUArgsKVM(t *testing.T) {
 		AppCmd:     "/usr/bin/node /usr/src/index.js",
 	}
 	args := BuildQEMUArgs(cfg)
-	tieneKVM := false
+	hasKVM := false
+	hasTCG := false
 	for _, a := range args {
-		if a == "-enable-kvm" {
-			tieneKVM = true
+		if a == "kvm" {
+			hasKVM = true
+		}
+		if a == "tcg" {
+			hasTCG = true
 		}
 	}
-	if !tieneKVM {
-		t.Error("KVM debería incluir -enable-kvm en los args")
+	if !hasKVM || hasTCG {
+		t.Error("KVM configuration must enable KVM without TCG")
+	}
+}
+
+func TestBuildQEMUArgsEmulationUsesTCG(t *testing.T) {
+	args := BuildQEMUArgs(RunConfig{KernelPath: "kernel", InitrdPath: "initrd", MemoryMiB: 128, CPUs: 1})
+	hasTCG := false
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "-accel" && args[i+1] == "tcg" {
+			hasTCG = true
+		}
+	}
+	if !hasTCG {
+		t.Fatal("emulation must explicitly enable TCG")
 	}
 }
 
