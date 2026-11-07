@@ -22,7 +22,7 @@ kern eliminates the operating system from the application lifecycle. Instead of 
 - `buildah` — to build the rootfs (no Docker daemon needed)
 - `qemu-system-x86_64` — to run unikernels
 - `objcopy` (included in `binutils`)
-- Go 1.22+
+- Go 1.26.3+
 
 ## Installation
 

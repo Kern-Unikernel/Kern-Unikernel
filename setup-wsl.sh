@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-GO_VERSION="1.22.4"
+GO_VERSION="1.26.3"
 KERN_REPO="https://github.com/Kern-Unikernel/Kern-Unikernel.git"
 
 echo ""
@@ -15,7 +15,16 @@ sudo apt-get install -y -qq \
 
 echo ">>> [2/6] Installing Go $GO_VERSION..."
 ARCH=$(dpkg --print-architecture)
-if ! command -v go &>/dev/null; then
+INSTALL_GO=0
+if command -v go &>/dev/null; then
+    CURRENT_GO=$(go version | awk '{print $3}' | sed 's/go//')
+    if [[ "$(printf '%s\n' "$GO_VERSION" "$CURRENT_GO" | sort -V | head -n1)" != "$GO_VERSION" ]]; then
+        INSTALL_GO=1
+    fi
+else
+    INSTALL_GO=1
+fi
+if [[ "$INSTALL_GO" == "1" ]]; then
     curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" \
         | sudo tar -xz -C /usr/local
 fi

@@ -4,7 +4,7 @@ set -e
 # kern installer for Linux
 # https://github.com/Kern-Unikernel/Kern-Unikernel
 
-GO_VERSION="1.22.4"
+GO_VERSION="1.26.3"
 KERN_REPO="https://github.com/Kern-Unikernel/Kern-Unikernel.git"
 KERN_BIN="$HOME/go/bin/kern"
 PROFILES_DIR="/usr/local/bin/profiles"
@@ -60,10 +60,18 @@ fi
 # ── 3. Go ──────────────────────────────────────────────────────────────────
 header "[3/5] Installing Go ${GO_VERSION}..."
 
+INSTALL_GO=0
 if command -v go &>/dev/null; then
     CURRENT_GO=$(go version | awk '{print $3}' | sed 's/go//')
     info "Go already installed: ${CURRENT_GO}"
+    if [[ "$(printf '%s\n' "$GO_VERSION" "$CURRENT_GO" | sort -V | head -n1)" != "$GO_VERSION" ]]; then
+        INSTALL_GO=1
+    fi
 else
+    INSTALL_GO=1
+fi
+
+if [[ "$INSTALL_GO" == "1" ]]; then
     info "Downloading Go ${GO_VERSION}..."
     curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" \
         | sudo tar -xz -C /usr/local

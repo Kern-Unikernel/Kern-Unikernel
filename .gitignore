@@ -8,6 +8,8 @@ kern
 
 # Dependencias (opcional, pero recomendado en Go)
 vendor/
+.cache/
+.tmp/
 
 # Archivos del sistema o editor
 .DS_Store
